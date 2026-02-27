@@ -119,19 +119,72 @@
         border-bottom: 1px solid var(--border);
       }
 
-      #editor {
+      .editor-wrap {
         flex: 1;
+        position: relative;
+        overflow: auto;
         background: var(--surface2);
-        color: var(--text);
+      }
+
+      #highlight,
+      #editor {
         font-family:
           "SF Mono", "Fira Code", "JetBrains Mono", "Menlo", monospace;
         font-size: 14px;
         line-height: 1.6;
         padding: 16px;
+        margin: 0;
         border: none;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        tab-size: 2;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      #highlight {
+        pointer-events: none;
+        color: var(--text);
+        overflow: hidden;
+      }
+
+      #editor {
+        background: transparent;
+        color: transparent;
+        caret-color: var(--text);
         resize: none;
         outline: none;
-        tab-size: 2;
+        z-index: 1;
+        overflow: auto;
+      }
+
+      .tok-keyword {
+        color: var(--mauve);
+      }
+      .tok-type {
+        color: var(--yellow);
+      }
+      .tok-string {
+        color: var(--green);
+      }
+      .tok-number {
+        color: #fab387;
+      }
+      .tok-constant {
+        color: #fab387;
+      }
+      .tok-comment {
+        color: var(--overlay);
+        font-style: italic;
+      }
+      .tok-operator {
+        color: var(--blue);
+      }
+      .tok-punctuation {
+        color: var(--subtext);
       }
 
       .output-area {
@@ -227,7 +280,9 @@
     <div class="panels">
       <div class="panel">
         <div class="panel-header">Source (.nk)</div>
-        <textarea id="editor" spellcheck="false">
+        <div class="editor-wrap">
+          <pre id="highlight" aria-hidden="true"></pre>
+          <textarea id="editor" spellcheck="false">
 // Welcome to Namekian!
 // Write your code here, then click Run.
 
@@ -243,7 +298,8 @@ string greet(string name) {
 }
 
 print(greet("World"));</textarea
-        >
+          >
+        </div>
       </div>
       <div class="panel">
         <div class="panel-header">Output</div>
@@ -379,16 +435,178 @@ for (k in keys) {
       };
 
       const editor = document.getElementById("editor");
+      const highlightEl = document.getElementById("highlight");
       const diagnosticsEl = document.getElementById("diagnostics");
       const consoleEl = document.getElementById("console");
       const runBtn = document.getElementById("run-btn");
       const examplesSelect = document.getElementById("examples");
+
+      // --- Syntax Highlighting ---
+      const HL_KEYWORDS = new Set([
+        "if",
+        "else",
+        "for",
+        "while",
+        "return",
+        "match",
+        "break",
+        "continue",
+        "try",
+        "catch",
+        "take",
+        "from",
+        "load",
+        "struct",
+        "class",
+        "interface",
+        "enum",
+        "new",
+        "this",
+        "const",
+        "in",
+      ]);
+      const HL_TYPES = new Set([
+        "int",
+        "float",
+        "string",
+        "bool",
+        "void",
+        "var",
+        "Result",
+      ]);
+      const HL_CONSTANTS = new Set(["true", "false", "null", "Ok", "Err"]);
+
+      function hlWordClass(word) {
+        if (HL_KEYWORDS.has(word)) return "tok-keyword";
+        if (HL_TYPES.has(word)) return "tok-type";
+        if (HL_CONSTANTS.has(word)) return "tok-constant";
+        return null;
+      }
+
+      function highlight() {
+        const src = editor.value;
+        let html = "";
+        let i = 0;
+        while (i < src.length) {
+          // Single-line comment
+          if (src[i] === "/" && src[i + 1] === "/") {
+            let end = src.indexOf("\n", i);
+            if (end === -1) end = src.length;
+            html += `<span class="tok-comment">${escapeHtml(src.slice(i, end))}</span>`;
+            i = end;
+            continue;
+          }
+          // Multi-line comment
+          if (src[i] === "/" && src[i + 1] === "*") {
+            let end = src.indexOf("*/", i + 2);
+            end = end === -1 ? src.length : end + 2;
+            html += `<span class="tok-comment">${escapeHtml(src.slice(i, end))}</span>`;
+            i = end;
+            continue;
+          }
+          // Triple-quote string
+          if (src[i] === '"' && src[i + 1] === '"' && src[i + 2] === '"') {
+            let end = src.indexOf('"""', i + 3);
+            end = end === -1 ? src.length : end + 3;
+            html += `<span class="tok-string">${escapeHtml(src.slice(i, end))}</span>`;
+            i = end;
+            continue;
+          }
+          // String
+          if (src[i] === '"') {
+            let j = i + 1;
+            while (j < src.length && src[j] !== '"' && src[j] !== "\n") {
+              if (src[j] === "\\") j++;
+              j++;
+            }
+            if (j < src.length && src[j] === '"') j++;
+            html += `<span class="tok-string">${escapeHtml(src.slice(i, j))}</span>`;
+            i = j;
+            continue;
+          }
+          // Number
+          if (/\d/.test(src[i])) {
+            let j = i;
+            while (j < src.length && /[\d.]/.test(src[j])) j++;
+            html += `<span class="tok-number">${escapeHtml(src.slice(i, j))}</span>`;
+            i = j;
+            continue;
+          }
+          // Identifier / keyword
+          if (/[a-zA-Z_]/.test(src[i])) {
+            let j = i;
+            while (j < src.length && /[a-zA-Z0-9_]/.test(src[j])) j++;
+            const word = src.slice(i, j);
+            const cls = hlWordClass(word);
+            if (cls) {
+              html += `<span class="${cls}">${escapeHtml(word)}</span>`;
+            } else {
+              html += escapeHtml(word);
+            }
+            i = j;
+            continue;
+          }
+          // Multi-char operators
+          if ("+-*/%=!<>&|?:".includes(src[i])) {
+            const two = src.slice(i, i + 2);
+            if (
+              [
+                "==",
+                "!=",
+                "<=",
+                ">=",
+                "&&",
+                "||",
+                "++",
+                "--",
+                "+=",
+                "-=",
+                "*=",
+                "/=",
+                "%=",
+                "=>",
+                "|>",
+                "..",
+                "?.",
+                "??",
+              ].includes(two)
+            ) {
+              html += `<span class="tok-operator">${escapeHtml(two)}</span>`;
+              i += 2;
+            } else {
+              html += `<span class="tok-operator">${escapeHtml(src[i])}</span>`;
+              i++;
+            }
+            continue;
+          }
+          // Punctuation
+          if ("(){}[],;.".includes(src[i])) {
+            html += `<span class="tok-punctuation">${escapeHtml(src[i])}</span>`;
+            i++;
+            continue;
+          }
+          // Whitespace and everything else
+          html += escapeHtml(src[i]);
+          i++;
+        }
+        highlightEl.innerHTML = html + "\n";
+      }
+
+      // Sync scroll between textarea and highlight overlay
+      editor.addEventListener("scroll", () => {
+        highlightEl.scrollTop = editor.scrollTop;
+        highlightEl.scrollLeft = editor.scrollLeft;
+      });
+
+      // Highlight on input
+      editor.addEventListener("input", highlight);
 
       examplesSelect.addEventListener("change", () => {
         const key = examplesSelect.value;
         if (key && EXAMPLES[key]) {
           editor.value = EXAMPLES[key];
           examplesSelect.value = "";
+          highlight();
         }
       });
 
@@ -403,6 +621,7 @@ for (k in keys) {
             "  " +
             editor.value.substring(end);
           editor.selectionStart = editor.selectionEnd = start + 2;
+          highlight();
         }
         // Ctrl/Cmd + Enter to run
         if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -481,7 +700,8 @@ for (k in keys) {
         }
       }
 
-      // Auto-run on load
+      // Auto-run and highlight on load
+      highlight();
       run();
     </script>
   </body>

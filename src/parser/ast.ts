@@ -80,7 +80,9 @@ export type Expression =
   | SpreadExpr
   | PipeExpr
   | RangeExpr
-  | TupleLiteralExpr;
+  | TupleLiteralExpr
+  | NullCoalesceExpr
+  | ArrayComprehensionExpr;
 
 export interface IntLiteralExpr {
   kind: "IntLiteral";
@@ -218,6 +220,22 @@ export interface TupleLiteralExpr {
   span: SourceSpan;
 }
 
+export interface NullCoalesceExpr {
+  kind: "NullCoalesceExpr";
+  left: Expression;
+  right: Expression;
+  span: SourceSpan;
+}
+
+export interface ArrayComprehensionExpr {
+  kind: "ArrayComprehension";
+  body: Expression;
+  variable: string;
+  iterable: Expression;
+  condition?: Expression;
+  span: SourceSpan;
+}
+
 export interface ArrowFunctionExpr {
   kind: "ArrowFunction";
   params: Parameter[];
@@ -326,6 +344,7 @@ export interface VariableDeclaration {
   name: string;
   type?: TypeAnnotation;
   initializer: Expression;
+  mutable?: boolean;
   span: SourceSpan;
 }
 

@@ -58,5 +58,7 @@ export function compile(
   return { success: true, js, ast, diagnostics };
 }
 
+import { TokenType } from "./lexer/token.js";
+
 // Expose on globalThis for the playground
-(globalThis as Record<string, unknown>).nk = { compile };
+(globalThis as Record<string, unknown>).nk = { compile, Lexer, TokenType };

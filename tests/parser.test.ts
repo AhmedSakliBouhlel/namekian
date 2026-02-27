@@ -638,4 +638,100 @@ describe("Parser", () => {
       }
     }
   });
+
+  // --- const vs var ---
+
+  it("parses const declaration with mutable: false", () => {
+    const stmt = parseFirst("const x = 5;");
+    expect(stmt.kind).toBe("VariableDeclaration");
+    if (stmt.kind === "VariableDeclaration") {
+      expect(stmt.name).toBe("x");
+      expect(stmt.mutable).toBe(false);
+      expect(stmt.initializer).toMatchObject({ kind: "IntLiteral", value: 5 });
+    }
+  });
+
+  it("parses var declaration with mutable: true", () => {
+    const stmt = parseFirst("var x = 5;");
+    expect(stmt.kind).toBe("VariableDeclaration");
+    if (stmt.kind === "VariableDeclaration") {
+      expect(stmt.name).toBe("x");
+      expect(stmt.mutable).toBe(true);
+      expect(stmt.initializer).toMatchObject({ kind: "IntLiteral", value: 5 });
+    }
+  });
+
+  // --- Null coalescing ---
+
+  it("parses a ?? b as NullCoalesceExpr", () => {
+    const stmt = parseFirst("var x = a ?? b;");
+    if (stmt.kind === "VariableDeclaration") {
+      expect(stmt.initializer.kind).toBe("NullCoalesceExpr");
+      if (stmt.initializer.kind === "NullCoalesceExpr") {
+        expect(stmt.initializer.left).toMatchObject({
+          kind: "Identifier",
+          name: "a",
+        });
+        expect(stmt.initializer.right).toMatchObject({
+          kind: "Identifier",
+          name: "b",
+        });
+      }
+    }
+  });
+
+  it("parses a ?? b ?? c as left-associative", () => {
+    const stmt = parseFirst("var x = a ?? b ?? c;");
+    if (stmt.kind === "VariableDeclaration") {
+      expect(stmt.initializer.kind).toBe("NullCoalesceExpr");
+      if (stmt.initializer.kind === "NullCoalesceExpr") {
+        // (a ?? b) ?? c — left side is another NullCoalesceExpr
+        expect(stmt.initializer.left.kind).toBe("NullCoalesceExpr");
+        expect(stmt.initializer.right).toMatchObject({
+          kind: "Identifier",
+          name: "c",
+        });
+      }
+    }
+  });
+
+  // --- Array comprehension ---
+
+  it("parses array comprehension [x * 2 for (x in nums)]", () => {
+    const stmt = parseFirst("var r = [x * 2 for (x in nums)];");
+    if (stmt.kind === "VariableDeclaration") {
+      expect(stmt.initializer.kind).toBe("ArrayComprehension");
+      if (stmt.initializer.kind === "ArrayComprehension") {
+        expect(stmt.initializer.variable).toBe("x");
+        expect(stmt.initializer.iterable).toMatchObject({
+          kind: "Identifier",
+          name: "nums",
+        });
+        expect(stmt.initializer.body).toMatchObject({
+          kind: "BinaryExpr",
+          operator: "*",
+        });
+        expect(stmt.initializer.condition).toBeUndefined();
+      }
+    }
+  });
+
+  it("parses array comprehension with condition", () => {
+    const stmt = parseFirst("var r = [x for (x in nums) if (x > 0)];");
+    if (stmt.kind === "VariableDeclaration") {
+      expect(stmt.initializer.kind).toBe("ArrayComprehension");
+      if (stmt.initializer.kind === "ArrayComprehension") {
+        expect(stmt.initializer.variable).toBe("x");
+        expect(stmt.initializer.iterable).toMatchObject({
+          kind: "Identifier",
+          name: "nums",
+        });
+        expect(stmt.initializer.condition).toBeDefined();
+        expect(stmt.initializer.condition).toMatchObject({
+          kind: "BinaryExpr",
+          operator: ">",
+        });
+      }
+    }
+  });
 });

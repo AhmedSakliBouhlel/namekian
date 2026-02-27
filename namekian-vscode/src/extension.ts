@@ -11,9 +11,7 @@ let client: LanguageClient;
 
 export function activate(context: ExtensionContext): void {
   // Path to the compiled LSP server
-  const serverModule = context.asAbsolutePath(
-    path.join("..", "dist", "lsp", "server.js"),
-  );
+  const serverModule = context.asAbsolutePath(path.join("out", "server.js"));
 
   const serverOptions: ServerOptions = {
     run: { module: serverModule, transport: TransportKind.ipc },

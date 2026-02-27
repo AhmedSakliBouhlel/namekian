@@ -83,6 +83,8 @@ export class Formatter {
           this.emit(
             `${this.fmtType(stmt.type)} ${stmt.name} = ${this.fmtExpr(stmt.initializer)};`,
           );
+        } else if (stmt.mutable === false) {
+          this.emit(`const ${stmt.name} = ${this.fmtExpr(stmt.initializer)};`);
         } else {
           this.emit(`var ${stmt.name} = ${this.fmtExpr(stmt.initializer)};`);
         }
@@ -542,6 +544,18 @@ export class Formatter {
       case "TupleLiteral": {
         const elems = expr.elements.map((e) => this.fmtExpr(e)).join(", ");
         return `(${elems})`;
+      }
+
+      case "NullCoalesceExpr":
+        return `${this.fmtExpr(expr.left)} ?? ${this.fmtExpr(expr.right)}`;
+
+      case "ArrayComprehension": {
+        const body = this.fmtExpr(expr.body);
+        const iter = this.fmtExpr(expr.iterable);
+        if (expr.condition) {
+          return `[${body} for (${expr.variable} in ${iter}) if (${this.fmtExpr(expr.condition)})]`;
+        }
+        return `[${body} for (${expr.variable} in ${iter})]`;
       }
 
       default:

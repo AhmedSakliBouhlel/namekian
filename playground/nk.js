@@ -319,6 +319,15 @@
               startCol,
               startOffset
             );
+          } else if (this.peek() === ".") {
+            this.advance();
+            this.addToken(
+              "DotDot" /* DotDot */,
+              "..",
+              startLine,
+              startCol,
+              startOffset
+            );
           } else {
             this.addToken("Dot" /* Dot */, ".", startLine, startCol, startOffset);
           }
@@ -431,9 +440,17 @@
         case "|":
           if (this.match("|")) {
             this.addToken("Or" /* Or */, "||", startLine, startCol, startOffset);
+          } else if (this.match(">")) {
+            this.addToken(
+              "PipeArrow" /* PipeArrow */,
+              "|>",
+              startLine,
+              startCol,
+              startOffset
+            );
           } else {
             this.diagnostics.push(
-              errorDiag(`Unexpected character '|'. Did you mean '||'?`, {
+              errorDiag(`Unexpected character '|'. Did you mean '||' or '|>'?`, {
                 file: this.file,
                 line: startLine,
                 column: startCol,
@@ -777,6 +794,16 @@
       }
       return false;
     }
+    looksLikeTupleTypeDecl() {
+      let i = 1;
+      let depth = 1;
+      while (depth > 0 && this.lookAhead(i) !== "EOF" /* EOF */) {
+        if (this.lookAhead(i) === "LeftParen" /* LeftParen */) depth++;
+        else if (this.lookAhead(i) === "RightParen" /* RightParen */) depth--;
+        i++;
+      }
+      return this.lookAhead(i) === "Identifier" /* Identifier */;
+    }
     // --- Type annotations ---
     isTypeStart() {
       const t = this.peekType();
@@ -807,6 +834,22 @@
         return { kind: "NamedType", name: "bool", span };
       if (this.match("Void" /* Void */))
         return { kind: "NamedType", name: "void", span };
+      if (this.check("LeftParen" /* LeftParen */)) {
+        const saved = this.pos;
+        const savedDiags = this.diagnostics.length;
+        this.advance();
+        const first = this.parseTypeAnnotation();
+        if (this.check("Comma" /* Comma */)) {
+          const elements = [first];
+          while (this.match("Comma" /* Comma */)) {
+            elements.push(this.parseTypeAnnotation());
+          }
+          this.expect("RightParen" /* RightParen */, "Expected ')'");
+          return { kind: "TupleType", elements, span };
+        }
+        this.pos = saved;
+        this.diagnostics.length = savedDiags;
+      }
       if (this.check("Result" /* Result */) || this.check("Identifier" /* Identifier */)) {
         const name = this.advance().value;
         if (this.match("Less" /* Less */)) {
@@ -859,6 +902,9 @@
       }
       if (t === "Var" /* Var */) return this.parseVarDeclaration();
       if (this.isTypeStart() && this.looksLikeTypedDecl()) {
+        return this.parseTypedDeclaration();
+      }
+      if (this.check("LeftParen" /* LeftParen */) && this.looksLikeTupleTypeDecl()) {
         return this.parseTypedDeclaration();
       }
       return this.parseExpressionStatement();
@@ -1232,10 +1278,30 @@
           "Expected variant name"
         ).value;
         let value;
+        let fields;
         if (this.match("Assign" /* Assign */)) {
           value = this.parseExpression();
+        } else if (this.match("LeftParen" /* LeftParen */)) {
+          fields = [];
+          if (!this.check("RightParen" /* RightParen */)) {
+            const ftype = this.parseTypeAnnotation();
+            const fname = this.expect(
+              "Identifier" /* Identifier */,
+              "Expected field name"
+            ).value;
+            fields.push({ name: fname, type: ftype });
+            while (this.match("Comma" /* Comma */)) {
+              const ft = this.parseTypeAnnotation();
+              const fn = this.expect(
+                "Identifier" /* Identifier */,
+                "Expected field name"
+              ).value;
+              fields.push({ name: fn, type: ft });
+            }
+          }
+          this.expect("RightParen" /* RightParen */, "Expected ')'");
         }
-        variants.push({ name: vname, value, span: vSpan });
+        variants.push({ name: vname, value, fields, span: vSpan });
         this.match("Comma" /* Comma */);
       }
       this.expect("RightBrace" /* RightBrace */, "Expected '}'");
@@ -1380,6 +1446,33 @@
       }
       if (this.check("Identifier" /* Identifier */)) {
         const name = this.advance().value;
+        if (this.match("Dot" /* Dot */)) {
+          const variant = this.expect(
+            "Identifier" /* Identifier */,
+            "Expected variant name"
+          ).value;
+          const bindings = [];
+          if (this.match("LeftParen" /* LeftParen */)) {
+            if (!this.check("RightParen" /* RightParen */)) {
+              bindings.push(
+                this.expect("Identifier" /* Identifier */, "Expected binding name").value
+              );
+              while (this.match("Comma" /* Comma */)) {
+                bindings.push(
+                  this.expect("Identifier" /* Identifier */, "Expected binding name").value
+                );
+              }
+            }
+            this.expect("RightParen" /* RightParen */, "Expected ')'");
+          }
+          return {
+            kind: "EnumVariantPattern",
+            enumName: name,
+            variant,
+            bindings,
+            span
+          };
+        }
         return { kind: "IdentifierPattern", name, span };
       }
       this.diagnostics.push(
@@ -1429,7 +1522,7 @@
       return expr;
     }
     parseTernary() {
-      const expr = this.parseOr();
+      const expr = this.parsePipe();
       if (this.match("Question" /* Question */)) {
         const consequent = this.parseAssignment();
         this.expect("Colon" /* Colon */, "Expected ':' in ternary expression");
@@ -1443,6 +1536,14 @@
         };
       }
       return expr;
+    }
+    parsePipe() {
+      let left = this.parseOr();
+      while (this.match("PipeArrow" /* PipeArrow */)) {
+        const right = this.parseOr();
+        left = { kind: "PipeExpr", left, right, span: left.span };
+      }
+      return left;
     }
     parseOr() {
       let left = this.parseAnd();
@@ -1489,7 +1590,7 @@
       return left;
     }
     parseComparison() {
-      let left = this.parseAddition();
+      let left = this.parseRange();
       while (true) {
         const op = this.match(
           "Less" /* Less */,
@@ -1504,6 +1605,21 @@
           operator: op.value,
           left,
           right,
+          span: left.span
+        };
+      }
+      return left;
+    }
+    parseRange() {
+      const left = this.parseAddition();
+      if (this.match("DotDot" /* DotDot */)) {
+        const inclusive = this.match("Assign" /* Assign */) !== null;
+        const end = this.parseAddition();
+        return {
+          kind: "RangeExpr",
+          start: left,
+          end,
+          inclusive,
           span: left.span
         };
       }
@@ -1745,10 +1861,20 @@
       this.pos = saved;
       const arrowResult = this.speculativeArrowParse();
       if (arrowResult) return arrowResult;
+      const span = this.span();
       this.advance();
-      const expr = this.parseExpression();
+      const first = this.parseExpression();
+      if (this.match("Comma" /* Comma */)) {
+        const elements = [first];
+        elements.push(this.parseExpression());
+        while (this.match("Comma" /* Comma */)) {
+          elements.push(this.parseExpression());
+        }
+        this.expect("RightParen" /* RightParen */, "Expected ')'");
+        return { kind: "TupleLiteral", elements, span };
+      }
       this.expect("RightParen" /* RightParen */, "Expected ')'");
-      return expr;
+      return first;
     }
     tryParseArrowFunction() {
       let depth = 0;
@@ -1946,6 +2072,10 @@
         return `${typeToString(t.innerType)}?`;
       case "enum":
         return t.name;
+      case "tuple": {
+        const elems = t.elements.map(typeToString).join(", ");
+        return `(${elems})`;
+      }
     }
   }
   function isAssignable(target, source) {
@@ -1969,6 +2099,12 @@
         return target.name === source.name;
       if (target.tag === "enum" && source.tag === "enum")
         return target.name === source.name;
+      if (target.tag === "tuple" && source.tag === "tuple") {
+        if (target.elements.length !== source.elements.length) return false;
+        return target.elements.every(
+          (te, i) => isAssignable(te, source.elements[i])
+        );
+      }
       return true;
     }
     if (target.tag === "float" && source.tag === "int") return true;
@@ -2084,6 +2220,10 @@
           const params = ann.params.map((p) => this.resolveType(p));
           const returnType = this.resolveType(ann.returnType);
           return { tag: "function", params, returnType };
+        }
+        case "TupleType": {
+          const elements = ann.elements.map((e) => this.resolveType(e));
+          return { tag: "tuple", elements };
         }
       }
     }
@@ -2337,10 +2477,20 @@
           break;
         }
         case "EnumDeclaration": {
+          const variantFields = /* @__PURE__ */ new Map();
+          for (const v of stmt.variants) {
+            if (v.fields && v.fields.length > 0) {
+              variantFields.set(
+                v.name,
+                v.fields.map((f) => this.resolveType(f.type))
+              );
+            }
+          }
           const enumType = {
             tag: "enum",
             name: stmt.name,
-            variants: stmt.variants.map((v) => v.name)
+            variants: stmt.variants.map((v) => v.name),
+            variantFields
           };
           this.env.define(stmt.name, enumType);
           this.env.registerType(stmt.name, enumType);
@@ -2407,6 +2557,11 @@
       }
       if (pattern.kind === "IdentifierPattern" && "name" in pattern && pattern.name) {
         this.env.define(pattern.name, NK_ANY);
+      }
+      if (pattern.kind === "EnumVariantPattern" && "bindings" in pattern && pattern.bindings) {
+        for (const b of pattern.bindings) {
+          this.env.define(b, NK_ANY);
+        }
       }
     }
     // --- Expressions ---
@@ -2591,6 +2746,19 @@
                 };
             }
           }
+          if (objType.tag === "enum") {
+            if (objType.variants.includes(expr.property)) {
+              const fields = objType.variantFields.get(expr.property);
+              if (fields && fields.length > 0) {
+                return {
+                  tag: "function",
+                  params: fields,
+                  returnType: objType
+                };
+              }
+              return objType;
+            }
+          }
           if (objType.tag === "map") {
             const val = objType.valueType;
             switch (expr.property) {
@@ -2765,6 +2933,23 @@
         }
         case "SpreadExpr":
           return this.checkExpression(expr.argument);
+        case "PipeExpr": {
+          this.checkExpression(expr.left);
+          const pipeRight = this.checkExpression(expr.right);
+          if (pipeRight.tag === "function") {
+            return pipeRight.returnType;
+          }
+          return NK_ANY;
+        }
+        case "RangeExpr": {
+          this.checkExpression(expr.start);
+          this.checkExpression(expr.end);
+          return { tag: "array", elementType: NK_INT };
+        }
+        case "TupleLiteral": {
+          const elements = expr.elements.map((e) => this.checkExpression(e));
+          return { tag: "tuple", elements };
+        }
       }
     }
   };
@@ -2853,6 +3038,14 @@ const __nk_json = {
   decode(str) { return JSON.parse(str); }
 };
 `.trim();
+  var NK_RANGE_RUNTIME = `
+function __nk_range(start, end, inclusive) {
+  const arr = [];
+  const stop = inclusive ? end + 1 : end;
+  for (let i = start; i < stop; i++) arr.push(i);
+  return arr;
+}
+`.trim();
 
   // src/codegen/codegen.ts
   var CodeGenerator = class {
@@ -2862,6 +3055,7 @@ const __nk_json = {
       __publicField(this, "usesResult", false);
       __publicField(this, "usesHttp", false);
       __publicField(this, "usesJson", false);
+      __publicField(this, "usesRange", false);
       __publicField(this, "asyncFunctions", /* @__PURE__ */ new Set());
     }
     generate(program) {
@@ -2870,6 +3064,7 @@ const __nk_json = {
       if (this.usesResult) preamble.push(NK_RUNTIME);
       if (this.usesHttp) preamble.push(NK_HTTP_RUNTIME);
       if (this.usesJson) preamble.push(NK_JSON_RUNTIME);
+      if (this.usesRange) preamble.push(NK_RANGE_RUNTIME);
       for (const stmt of program.body) {
         this.emitStatement(stmt);
       }
@@ -2889,6 +3084,9 @@ const __nk_json = {
       }
       if (source.includes('"json"')) {
         this.usesJson = true;
+      }
+      if (source.includes('"RangeExpr"')) {
+        this.usesRange = true;
       }
       this.detectAsync(program);
     }
@@ -2967,6 +3165,12 @@ const __nk_json = {
           return this.exprCallsAsync(expr.object, asyncCallees) || this.exprCallsAsync(expr.index, asyncCallees);
         case "SpreadExpr":
           return this.exprCallsAsync(expr.argument, asyncCallees);
+        case "PipeExpr":
+          return this.exprCallsAsync(expr.left, asyncCallees) || this.exprCallsAsync(expr.right, asyncCallees);
+        case "RangeExpr":
+          return this.exprCallsAsync(expr.start, asyncCallees) || this.exprCallsAsync(expr.end, asyncCallees);
+        case "TupleLiteral":
+          return expr.elements.some((e) => this.exprCallsAsync(e, asyncCallees));
         default:
           return false;
       }
@@ -3113,13 +3317,30 @@ const __nk_json = {
         case "TypeAlias":
           break;
         case "EnumDeclaration": {
-          const entries = stmt.variants.map((v, i) => {
-            const val = v.value ? this.genExpr(v.value) : String(i);
-            return `${v.name}: ${val}`;
-          });
-          this.emit(
-            `const ${stmt.name} = Object.freeze({ ${entries.join(", ")} });`
+          const hasADT = stmt.variants.some(
+            (v) => v.fields && v.fields.length > 0
           );
+          if (hasADT) {
+            const entries = stmt.variants.map((v) => {
+              if (v.fields && v.fields.length > 0) {
+                const params = v.fields.map((f) => f.name).join(", ");
+                const obj = v.fields.map((f) => f.name).concat([`__tag: "${v.name}"`]).join(", ");
+                return `${v.name}: (${params}) => ({ ${obj} })`;
+              }
+              return `${v.name}: Object.freeze({ __tag: "${v.name}" })`;
+            });
+            this.emit(
+              `const ${stmt.name} = Object.freeze({ ${entries.join(", ")} });`
+            );
+          } else {
+            const entries = stmt.variants.map((v, i) => {
+              const val = v.value ? this.genExpr(v.value) : String(i);
+              return `${v.name}: ${val}`;
+            });
+            this.emit(
+              `const ${stmt.name} = Object.freeze({ ${entries.join(", ")} });`
+            );
+          }
           break;
         }
         case "TakeStatement": {
@@ -3226,6 +3447,11 @@ const __nk_json = {
         if (binding) {
           this.emit(`const ${binding.name} = ${binding.value};`);
         }
+        if (arm.pattern.kind === "EnumVariantPattern" && arm.pattern.bindings.length > 0) {
+          for (const b of arm.pattern.bindings) {
+            this.emit(`const ${b} = ${tempVar}.${b};`);
+          }
+        }
         if (arm.body.kind === "BlockStatement") {
           this.emitBlock(arm.body);
         } else {
@@ -3255,6 +3481,10 @@ const __nk_json = {
           return {
             condition: `true`,
             binding: { name: pattern.name, value: tempVar }
+          };
+        case "EnumVariantPattern":
+          return {
+            condition: `${tempVar}.__tag === "${pattern.variant}"`
           };
         case "WildcardPattern":
           return { condition: "true" };
@@ -3350,6 +3580,14 @@ ${"  ".repeat(this.indent)}}`;
           return `(${this.genExpr(expr.condition)} ? ${this.genExpr(expr.consequent)} : ${this.genExpr(expr.alternate)})`;
         case "SpreadExpr":
           return `...${this.genExpr(expr.argument)}`;
+        case "PipeExpr":
+          return `${this.genExpr(expr.right)}(${this.genExpr(expr.left)})`;
+        case "RangeExpr":
+          return `__nk_range(${this.genExpr(expr.start)}, ${this.genExpr(expr.end)}, ${expr.inclusive})`;
+        case "TupleLiteral": {
+          const elements = expr.elements.map((e) => this.genExpr(e)).join(", ");
+          return `[${elements}]`;
+        }
       }
     }
     genMatchExpr(expr) {
@@ -3366,6 +3604,11 @@ ${"  ".repeat(this.indent)}}`;
         }
         if (binding) {
           code += `const ${binding.name} = ${binding.value}; `;
+        }
+        if (arm.pattern.kind === "EnumVariantPattern" && arm.pattern.bindings.length > 0) {
+          for (const b of arm.pattern.bindings) {
+            code += `const ${b} = __m.${b}; `;
+          }
         }
         if (arm.body.kind === "BlockStatement") {
           const saved = this.output.length;

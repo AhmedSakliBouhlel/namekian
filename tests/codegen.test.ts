@@ -293,4 +293,45 @@ describe("CodeGenerator", () => {
     expect(js).toContain("const r =");
     expect(js).toContain('__tag === "Point"');
   });
+
+  // --- const vs var ---
+
+  it("generates const declaration", () => {
+    const js = gen("const x = 5;");
+    expect(js).toContain("const x = 5;");
+  });
+
+  it("generates var declaration as let", () => {
+    const js = gen("var x = 5;");
+    expect(js).toContain("let x = 5;");
+  });
+
+  // --- Null coalescing ---
+
+  it("generates null coalescing operator", () => {
+    const js = gen("var x = a ?? b;");
+    expect(js).toContain("(a ?? b)");
+  });
+
+  // --- Array comprehension ---
+
+  it("generates array comprehension as .map()", () => {
+    const js = gen("var r = [x * 2 for (x in nums)];");
+    expect(js).toContain(".map(");
+    expect(js).toContain("(x) =>");
+  });
+
+  it("generates array comprehension with condition as .filter().map()", () => {
+    const js = gen("var r = [x for (x in nums) if (x > 0)];");
+    expect(js).toContain(".filter(");
+    expect(js).toContain(".map(");
+  });
+
+  // --- Triple-quote string ---
+
+  it("generates triple-quote multi-line string as correct string literal", () => {
+    const source = 'var s = """\n    hello\n    world\n    """;';
+    const js = gen(source);
+    expect(js).toContain("hello\\nworld");
+  });
 });

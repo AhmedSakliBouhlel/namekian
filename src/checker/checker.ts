@@ -21,6 +21,7 @@ import {
   NkResult,
   isAssignable,
   typeToString,
+  NkTypeVar,
 } from "./types.js";
 
 export class TypeChecker {
@@ -31,9 +32,14 @@ export class TypeChecker {
   private env = new TypeEnvironment();
   private file: string;
   private currentReturnType: NkType | undefined;
+  private externalTypes: Map<string, Map<string, NkType>> | undefined;
 
-  constructor(file = "<stdin>") {
+  constructor(
+    file = "<stdin>",
+    externalTypes?: Map<string, Map<string, NkType>>,
+  ) {
     this.file = file;
+    this.externalTypes = externalTypes;
     this.registerStdlib();
   }
 
@@ -41,6 +47,15 @@ export class TypeChecker {
     for (const stmt of program.body) {
       this.checkStatement(stmt);
     }
+  }
+
+  /** Returns the types of all top-level definitions after checking. */
+  getExportedTypes(): Map<string, NkType> {
+    const exports = new Map<string, NkType>();
+    for (const [name, type] of this.env.getTopLevelScope()) {
+      exports.set(name, type);
+    }
+    return exports;
   }
 
   private registerStdlib(): void {
@@ -187,6 +202,7 @@ export class TypeChecker {
     switch (stmt.kind) {
       case "VariableDeclaration": {
         const initType = this.checkExpression(stmt.initializer);
+        const isConst = stmt.mutable === false;
         if (stmt.type) {
           const declaredType = this.resolveType(stmt.type);
           if (!isAssignable(declaredType, initType)) {
@@ -197,21 +213,21 @@ export class TypeChecker {
               hint,
             );
           }
-          this.env.define(stmt.name, declaredType);
+          this.env.define(stmt.name, declaredType, isConst);
           this.recordSymbol(stmt.name, declaredType, stmt.span.offset);
         } else {
-          // var inference
-          this.env.define(stmt.name, initType);
+          // var/const inference
+          this.env.define(stmt.name, initType, isConst);
           this.recordSymbol(stmt.name, initType, stmt.span.offset);
         }
         break;
       }
 
       case "FunctionDeclaration": {
-        // Register generic type params as NK_ANY in scope
+        // Register generic type params as typevars in scope
         this.env.enterScope();
         for (const tp of stmt.typeParams) {
-          this.env.registerType(tp, NK_ANY);
+          this.env.registerType(tp, { tag: "typevar", name: tp } as NkTypeVar);
         }
         const paramTypes = stmt.params.map((p) =>
           p.type ? this.resolveType(p.type) : NK_ANY,
@@ -223,6 +239,7 @@ export class TypeChecker {
           tag: "function",
           params: paramTypes,
           returnType,
+          typeParams: stmt.typeParams.length > 0 ? stmt.typeParams : undefined,
         };
         this.env.exitScope();
         this.env.define(stmt.name, fnType);
@@ -230,7 +247,7 @@ export class TypeChecker {
 
         this.env.enterScope();
         for (const tp of stmt.typeParams) {
-          this.env.registerType(tp, NK_ANY);
+          this.env.registerType(tp, { tag: "typevar", name: tp } as NkTypeVar);
         }
         for (let i = 0; i < stmt.params.length; i++) {
           this.env.define(stmt.params[i].name, paramTypes[i]);
@@ -476,12 +493,21 @@ export class TypeChecker {
         break;
       }
 
-      case "TakeStatement":
-        // Imported names get any type (external modules)
+      case "TakeStatement": {
         for (const name of stmt.names) {
-          this.env.define(name, NK_ANY);
+          let type: NkType = NK_ANY;
+          if (this.externalTypes) {
+            for (const [, types] of this.externalTypes) {
+              if (types.has(name)) {
+                type = types.get(name)!;
+                break;
+              }
+            }
+          }
+          this.env.define(name, type);
         }
         break;
+      }
 
       case "LoadStatement":
         this.env.define(stmt.name, NK_ANY);
@@ -497,8 +523,8 @@ export class TypeChecker {
         this.env.exitScope();
         break;
 
-      case "MatchStatement":
-        this.checkExpression(stmt.subject);
+      case "MatchStatement": {
+        const matchSubjType = this.checkExpression(stmt.subject);
         for (const arm of stmt.arms) {
           this.env.enterScope();
           this.bindMatchPattern(arm.pattern);
@@ -509,7 +535,9 @@ export class TypeChecker {
           }
           this.env.exitScope();
         }
+        this.checkMatchExhaustiveness(matchSubjType, stmt.arms, stmt);
         break;
+      }
 
       case "DestructureDeclaration": {
         const initType = this.checkExpression(stmt.initializer);
@@ -661,8 +689,9 @@ export class TypeChecker {
 
       case "CallExpr": {
         const calleeType = this.checkExpression(expr.callee);
+        const argTypes: NkType[] = [];
         for (const arg of expr.args) {
-          this.checkExpression(arg);
+          argTypes.push(this.checkExpression(arg));
         }
 
         if (calleeType.tag === "function") {
@@ -687,6 +716,11 @@ export class TypeChecker {
                 `'${fnName}' expects (${paramStr})`,
               );
             }
+          }
+          // Generic type inference
+          if (calleeType.typeParams && calleeType.typeParams.length > 0) {
+            const substitution = this.inferTypeArgs(calleeType, argTypes);
+            return this.applySubstitution(calleeType.returnType, substitution);
           }
           return calleeType.returnType;
         }
@@ -862,6 +896,15 @@ export class TypeChecker {
       }
 
       case "AssignExpr": {
+        if (
+          expr.target.kind === "Identifier" &&
+          this.env.isConst(expr.target.name)
+        ) {
+          this.error(
+            `Cannot assign to '${expr.target.name}' because it is a constant`,
+            expr,
+          );
+        }
         const targetType = this.checkExpression(expr.target);
         const valueType = this.checkExpression(expr.value);
         if (targetType.tag !== "any" && !isAssignable(targetType, valueType)) {
@@ -951,7 +994,7 @@ export class TypeChecker {
       }
 
       case "MatchExpr": {
-        this.checkExpression(expr.subject);
+        const matchExprSubjType = this.checkExpression(expr.subject);
         let resultType: NkType = NK_ANY;
         for (const arm of expr.arms) {
           this.env.enterScope();
@@ -963,6 +1006,7 @@ export class TypeChecker {
           }
           this.env.exitScope();
         }
+        this.checkMatchExhaustiveness(matchExprSubjType, expr.arms, expr);
         return resultType;
       }
 
@@ -976,13 +1020,32 @@ export class TypeChecker {
       }
 
       case "CompoundAssignExpr": {
+        if (
+          expr.target.kind === "Identifier" &&
+          this.env.isConst(expr.target.name)
+        ) {
+          this.error(
+            `Cannot assign to '${expr.target.name}' because it is a constant`,
+            expr,
+          );
+        }
         const targetType = this.checkExpression(expr.target);
         this.checkExpression(expr.value);
         return targetType;
       }
 
-      case "UpdateExpr":
+      case "UpdateExpr": {
+        if (
+          expr.argument.kind === "Identifier" &&
+          this.env.isConst(expr.argument.name)
+        ) {
+          this.error(
+            `Cannot assign to '${expr.argument.name}' because it is a constant`,
+            expr,
+          );
+        }
         return this.checkExpression(expr.argument);
+      }
 
       case "TernaryExpr": {
         this.checkExpression(expr.condition);
@@ -1013,7 +1076,192 @@ export class TypeChecker {
         const elements = expr.elements.map((e) => this.checkExpression(e));
         return { tag: "tuple", elements };
       }
+
+      case "NullCoalesceExpr": {
+        const leftType = this.checkExpression(expr.left);
+        const rightType = this.checkExpression(expr.right);
+        if (leftType.tag === "nullable") {
+          return leftType.innerType;
+        }
+        if (leftType.tag === "null") {
+          return rightType;
+        }
+        if (leftType.tag !== "any") {
+          this.warn(
+            `Left side of '??' is not nullable (type '${typeToString(leftType)}')`,
+            expr,
+          );
+        }
+        return leftType;
+      }
+
+      case "ArrayComprehension": {
+        const iterableType = this.checkExpression(expr.iterable);
+        this.env.enterScope();
+        let elemType: NkType = NK_ANY;
+        if (iterableType.tag === "array") {
+          elemType = iterableType.elementType;
+        }
+        this.env.define(expr.variable, elemType);
+        const bodyType = this.checkExpression(expr.body);
+        if (expr.condition) {
+          this.checkExpression(expr.condition);
+        }
+        this.env.exitScope();
+        return { tag: "array", elementType: bodyType };
+      }
     }
+  }
+
+  // --- Match exhaustiveness ---
+
+  private checkMatchExhaustiveness(
+    subjectType: NkType,
+    arms: import("../parser/ast.js").MatchArm[],
+    node: { span: { line: number; column: number; offset: number } },
+  ): void {
+    // Skip if wildcard or identifier pattern present (catches everything)
+    for (const arm of arms) {
+      if (
+        arm.pattern.kind === "WildcardPattern" ||
+        arm.pattern.kind === "IdentifierPattern"
+      ) {
+        return;
+      }
+    }
+
+    if (subjectType.tag === "enum") {
+      const covered = new Set<string>();
+      for (const arm of arms) {
+        if (arm.pattern.kind === "EnumVariantPattern") {
+          covered.add(arm.pattern.variant);
+        }
+      }
+      const missing = subjectType.variants.filter((v) => !covered.has(v));
+      if (missing.length > 0) {
+        this.warn(
+          `Non-exhaustive match: missing variant(s) ${missing.map((v) => `'${subjectType.name}.${v}'`).join(", ")}`,
+          node,
+          "Add a wildcard '_' pattern or handle all variants",
+        );
+      }
+    }
+
+    if (subjectType.tag === "result") {
+      let hasOk = false;
+      let hasErr = false;
+      for (const arm of arms) {
+        if (arm.pattern.kind === "OkPattern") hasOk = true;
+        if (arm.pattern.kind === "ErrPattern") hasErr = true;
+      }
+      if (!hasOk || !hasErr) {
+        const missing = [];
+        if (!hasOk) missing.push("'Ok'");
+        if (!hasErr) missing.push("'Err'");
+        this.warn(
+          `Non-exhaustive match: missing pattern(s) ${missing.join(", ")}`,
+          node,
+          "Add a wildcard '_' pattern or handle both Ok and Err",
+        );
+      }
+    }
+  }
+
+  // --- Generic type inference ---
+
+  private inferTypeArgs(
+    fnType: NkFunction,
+    argTypes: NkType[],
+  ): Map<string, NkType> {
+    const substitution = new Map<string, NkType>();
+    if (!fnType.typeParams) return substitution;
+    for (let i = 0; i < fnType.params.length && i < argTypes.length; i++) {
+      this.unify(fnType.params[i], argTypes[i], substitution);
+    }
+    return substitution;
+  }
+
+  private unify(
+    paramType: NkType,
+    argType: NkType,
+    substitution: Map<string, NkType>,
+  ): void {
+    if (paramType.tag === "typevar") {
+      if (!substitution.has(paramType.name)) {
+        substitution.set(paramType.name, argType);
+      }
+      return;
+    }
+    if (paramType.tag === "array" && argType.tag === "array") {
+      this.unify(paramType.elementType, argType.elementType, substitution);
+    }
+    if (paramType.tag === "nullable" && argType.tag === "nullable") {
+      this.unify(paramType.innerType, argType.innerType, substitution);
+    }
+    if (paramType.tag === "result" && argType.tag === "result") {
+      this.unify(paramType.okType, argType.okType, substitution);
+      this.unify(paramType.errType, argType.errType, substitution);
+    }
+    if (paramType.tag === "tuple" && argType.tag === "tuple") {
+      for (
+        let i = 0;
+        i < paramType.elements.length && i < argType.elements.length;
+        i++
+      ) {
+        this.unify(paramType.elements[i], argType.elements[i], substitution);
+      }
+    }
+    if (paramType.tag === "map" && argType.tag === "map") {
+      this.unify(paramType.keyType, argType.keyType, substitution);
+      this.unify(paramType.valueType, argType.valueType, substitution);
+    }
+    if (paramType.tag === "function" && argType.tag === "function") {
+      this.unify(paramType.returnType, argType.returnType, substitution);
+      for (
+        let i = 0;
+        i < paramType.params.length && i < argType.params.length;
+        i++
+      ) {
+        this.unify(paramType.params[i], argType.params[i], substitution);
+      }
+    }
+  }
+
+  private applySubstitution(
+    type: NkType,
+    substitution: Map<string, NkType>,
+  ): NkType {
+    if (type.tag === "typevar") {
+      return substitution.get(type.name) ?? NK_ANY;
+    }
+    if (type.tag === "array") {
+      return {
+        tag: "array",
+        elementType: this.applySubstitution(type.elementType, substitution),
+      };
+    }
+    if (type.tag === "nullable") {
+      return {
+        tag: "nullable",
+        innerType: this.applySubstitution(type.innerType, substitution),
+      };
+    }
+    if (type.tag === "result") {
+      return {
+        tag: "result",
+        okType: this.applySubstitution(type.okType, substitution),
+        errType: this.applySubstitution(type.errType, substitution),
+      };
+    }
+    if (type.tag === "tuple") {
+      return {
+        tag: "tuple",
+        elements: type.elements.map((e) =>
+          this.applySubstitution(e, substitution),
+        ),
+      };
+    }
+    return type;
   }
 }
 
