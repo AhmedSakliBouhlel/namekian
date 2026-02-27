@@ -14,6 +14,7 @@ interface CliOptions {
   showAst?: boolean;
   showTokens?: boolean;
   watch?: boolean;
+  sourceMap?: boolean;
 }
 
 function parseArgs(args: string[]): CliOptions | null {
@@ -30,6 +31,7 @@ function parseArgs(args: string[]): CliOptions | null {
   let showAst = false;
   let showTokens = false;
   let watch = false;
+  let sourceMap = false;
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -43,13 +45,24 @@ function parseArgs(args: string[]): CliOptions | null {
       showTokens = true;
     } else if (arg === "--watch" || arg === "-w") {
       watch = true;
+    } else if (arg === "--source-map") {
+      sourceMap = true;
     } else if (!arg.startsWith("-")) {
       file = arg;
     }
   }
 
   if (!file) return null;
-  return { command, file, outDir, noCheck, showAst, showTokens, watch };
+  return {
+    command,
+    file,
+    outDir,
+    noCheck,
+    showAst,
+    showTokens,
+    watch,
+    sourceMap,
+  };
 }
 
 function printUsage(): void {
@@ -74,6 +87,7 @@ Options:
   --ast           Also print AST when building
   --tokens        Also print tokens when building
   -w, --watch     Watch for changes and recompile
+  --source-map    Generate source map (.js.map) alongside compiled output
 `.trim(),
   );
 }
@@ -165,6 +179,7 @@ export async function cli(args: string[]): Promise<void> {
 
         const buildResult = buildProject(filePath, opts.outDir, {
           noCheck: opts.noCheck,
+          sourceMap: opts.sourceMap,
         });
 
         if (buildResult.diagnostics.length > 0) {

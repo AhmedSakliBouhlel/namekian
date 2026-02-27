@@ -12,6 +12,7 @@ import {
   NK_JSON_RUNTIME,
   NK_RANGE_RUNTIME,
 } from "./js-runtime.js";
+import { SourceMapGenerator } from "./source-map.js";
 
 export class CodeGenerator {
   private output: string[] = [];
@@ -21,8 +22,13 @@ export class CodeGenerator {
   private usesJson = false;
   private usesRange = false;
   private asyncFunctions = new Set<string>();
+  private projectMode = false;
+  private trackSourceMap = false;
+  private sourceMapGen: SourceMapGenerator = new SourceMapGenerator();
 
-  generate(program: Program): string {
+  generate(program: Program, options?: { projectMode?: boolean }): string {
+    this.projectMode = options?.projectMode ?? false;
+
     // First pass: detect features used
     this.detectFeatures(program);
 
@@ -44,6 +50,95 @@ export class CodeGenerator {
     }
     return code;
   }
+
+  generateWithMap(
+    program: Program,
+    source: string,
+    sourceFile: string,
+  ): { code: string; sourceMap: string } {
+    // Reset state
+    this.output = [];
+    this.indent = 0;
+    this.usesResult = false;
+    this.usesHttp = false;
+    this.usesJson = false;
+    this.usesRange = false;
+    this.asyncFunctions = new Set<string>();
+    this.sourceMapGen = new SourceMapGenerator();
+    this._pendingMappings = [];
+    this.trackSourceMap = true;
+
+    // First pass: detect features used
+    this.detectFeatures(program);
+
+    // Emit runtime preamble
+    const preamble: string[] = [];
+    if (this.usesResult) preamble.push(NK_RUNTIME);
+    if (this.usesHttp) preamble.push(NK_HTTP_RUNTIME);
+    if (this.usesJson) preamble.push(NK_JSON_RUNTIME);
+    if (this.usesRange) preamble.push(NK_RANGE_RUNTIME);
+
+    // Account for preamble lines in the output offset
+    let preambleLineCount = 0;
+    if (preamble.length > 0) {
+      const preambleText = preamble.join("\n\n") + "\n\n";
+      preambleLineCount = preambleText.split("\n").length - 1;
+    }
+
+    // Second pass: generate code
+    for (const stmt of program.body) {
+      this.emitStatement(stmt);
+    }
+
+    // Adjust all mappings to account for preamble lines
+    if (preambleLineCount > 0) {
+      const adjusted = new SourceMapGenerator();
+      // Re-add all mappings from the current generator with adjusted line numbers.
+      // We do this by generating with preamble offset applied via a wrapper.
+      // Instead, we track preamble offset directly during emission.
+      // Since we cannot access private mappings, we use a simpler approach:
+      // rebuild with the offset baked in via a secondary generator field.
+      // For now the mappings recorded during emitStatement already store
+      // this.output.length which does NOT include preamble. We correct below.
+      this.sourceMapGen = this.buildOffsetSourceMap(preambleLineCount);
+    }
+
+    const code = this.output.join("\n");
+    const fullCode =
+      preamble.length > 0 ? preamble.join("\n\n") + "\n\n" + code : code;
+
+    const jsFile = sourceFile.replace(/\.nk$/, ".js");
+    const mapFile = sourceFile.replace(/\.nk$/, ".js.map");
+    const sourceMapJson = JSON.stringify(
+      this.sourceMapGen.toJSON(jsFile, [sourceFile], [source]),
+    );
+
+    this.trackSourceMap = false;
+
+    return {
+      code: fullCode + `\n//# sourceMappingURL=${mapFile}`,
+      sourceMap: sourceMapJson,
+    };
+  }
+
+  private buildOffsetSourceMap(lineOffset: number): SourceMapGenerator {
+    const adjusted = new SourceMapGenerator();
+    for (const m of this._pendingMappings) {
+      adjusted.addMapping({
+        ...m,
+        generatedLine: m.generatedLine + lineOffset,
+      });
+    }
+    return adjusted;
+  }
+
+  private _pendingMappings: Array<{
+    generatedLine: number;
+    generatedColumn: number;
+    sourceLine: number;
+    sourceColumn: number;
+    sourceIndex: number;
+  }> = [];
 
   private detectFeatures(program: Program): void {
     const source = JSON.stringify(program);
@@ -197,6 +292,19 @@ export class CodeGenerator {
         );
       case "TupleLiteral":
         return expr.elements.some((e) => this.exprCallsAsync(e, asyncCallees));
+      case "NullCoalesceExpr":
+        return (
+          this.exprCallsAsync(expr.left, asyncCallees) ||
+          this.exprCallsAsync(expr.right, asyncCallees)
+        );
+      case "ArrayComprehension":
+        return (
+          this.exprCallsAsync(expr.iterable, asyncCallees) ||
+          this.exprCallsAsync(expr.body, asyncCallees) ||
+          (expr.condition
+            ? this.exprCallsAsync(expr.condition, asyncCallees)
+            : false)
+        );
       default:
         return false;
     }
@@ -217,16 +325,37 @@ export class CodeGenerator {
   // --- Statements ---
 
   private emitStatement(stmt: Statement): void {
+    if (this.trackSourceMap && stmt.span) {
+      const mapping = {
+        generatedLine: this.output.length,
+        generatedColumn: 0,
+        sourceLine: stmt.span.line - 1,
+        sourceColumn: stmt.span.column - 1,
+        sourceIndex: 0,
+      };
+      this.sourceMapGen.addMapping(mapping);
+      this._pendingMappings.push(mapping);
+    }
     switch (stmt.kind) {
-      case "VariableDeclaration":
-        this.emit(`let ${stmt.name} = ${this.genExpr(stmt.initializer)};`);
+      case "VariableDeclaration": {
+        const keyword = stmt.mutable === false ? "const" : "let";
+        const exportPrefix =
+          this.projectMode && this.indent === 0 ? "export " : "";
+        this.emit(
+          `${exportPrefix}${keyword} ${stmt.name} = ${this.genExpr(stmt.initializer)};`,
+        );
         break;
+      }
 
       case "FunctionDeclaration": {
         const isAsync = this.asyncFunctions.has(stmt.name);
-        const prefix = isAsync ? "async " : "";
+        const asyncPrefix = isAsync ? "async " : "";
+        const exportPrefix =
+          this.projectMode && this.indent === 0 ? "export " : "";
         const params = this.genParams(stmt.params);
-        this.emit(`${prefix}function ${stmt.name}(${params}) {`);
+        this.emit(
+          `${exportPrefix}${asyncPrefix}function ${stmt.name}(${params}) {`,
+        );
         this.indent++;
         this.emitBlock(stmt.body);
         this.indent--;
@@ -310,7 +439,9 @@ export class CodeGenerator {
 
       case "StructDeclaration": {
         const fieldNames = stmt.fields.map((f) => f.name);
-        this.emit(`class ${stmt.name} {`);
+        const structExportPrefix =
+          this.projectMode && this.indent === 0 ? "export " : "";
+        this.emit(`${structExportPrefix}class ${stmt.name} {`);
         this.indent++;
         this.emit(`constructor(${fieldNames.join(", ")}) {`);
         this.indent++;
@@ -334,7 +465,9 @@ export class CodeGenerator {
 
       case "ClassDeclaration": {
         const ext = stmt.superClass ? ` extends ${stmt.superClass}` : "";
-        this.emit(`class ${stmt.name}${ext} {`);
+        const classExportPrefix =
+          this.projectMode && this.indent === 0 ? "export " : "";
+        this.emit(`${classExportPrefix}class ${stmt.name}${ext} {`);
         this.indent++;
         // Constructor from fields
         if (stmt.fields.length > 0) {
@@ -367,6 +500,8 @@ export class CodeGenerator {
         break;
 
       case "EnumDeclaration": {
+        const enumExportPrefix =
+          this.projectMode && this.indent === 0 ? "export " : "";
         const hasADT = stmt.variants.some(
           (v) => v.fields && v.fields.length > 0,
         );
@@ -384,7 +519,7 @@ export class CodeGenerator {
             return `${v.name}: Object.freeze({ __tag: "${v.name}" })`;
           });
           this.emit(
-            `const ${stmt.name} = Object.freeze({ ${entries.join(", ")} });`,
+            `${enumExportPrefix}const ${stmt.name} = Object.freeze({ ${entries.join(", ")} });`,
           );
         } else {
           // Simple enum with numeric values
@@ -393,7 +528,7 @@ export class CodeGenerator {
             return `${v.name}: ${val}`;
           });
           this.emit(
-            `const ${stmt.name} = Object.freeze({ ${entries.join(", ")} });`,
+            `${enumExportPrefix}const ${stmt.name} = Object.freeze({ ${entries.join(", ")} });`,
           );
         }
         break;
@@ -701,6 +836,20 @@ export class CodeGenerator {
       case "TupleLiteral": {
         const elements = expr.elements.map((e) => this.genExpr(e)).join(", ");
         return `[${elements}]`;
+      }
+
+      case "NullCoalesceExpr":
+        return `(${this.genExpr(expr.left)} ?? ${this.genExpr(expr.right)})`;
+
+      case "ArrayComprehension": {
+        const iter = this.genExpr(expr.iterable);
+        const body = this.genExpr(expr.body);
+        const v = expr.variable;
+        if (expr.condition) {
+          const cond = this.genExpr(expr.condition);
+          return `${iter}.filter((${v}) => ${cond}).map((${v}) => ${body})`;
+        }
+        return `${iter}.map((${v}) => ${body})`;
       }
     }
   }

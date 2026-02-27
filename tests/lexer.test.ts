@@ -361,4 +361,62 @@ describe("Lexer", () => {
     const spreadTypes = tokenTypes("...x");
     expect(spreadTypes).toContain(TokenType.Spread);
   });
+
+  // --- const keyword ---
+
+  it("tokenizes const keyword", () => {
+    const types = tokenTypes("const x = 5");
+    expect(types).toEqual([
+      TokenType.Const,
+      TokenType.Identifier,
+      TokenType.Assign,
+      TokenType.IntLiteral,
+      TokenType.EOF,
+    ]);
+  });
+
+  // --- Null coalescing operator ?? ---
+
+  it("tokenizes ?? as QuestionQuestion", () => {
+    const types = tokenTypes("a ?? b");
+    expect(types).toEqual([
+      TokenType.Identifier,
+      TokenType.QuestionQuestion,
+      TokenType.Identifier,
+      TokenType.EOF,
+    ]);
+  });
+
+  it("still tokenizes ? as Question (not broken by ??)", () => {
+    const types = tokenTypes("int?");
+    expect(types).toEqual([TokenType.Int, TokenType.Question, TokenType.EOF]);
+  });
+
+  it("still tokenizes ?. as QuestionDot (not broken by ??)", () => {
+    const types = tokenTypes("a?.b");
+    expect(types).toEqual([
+      TokenType.Identifier,
+      TokenType.QuestionDot,
+      TokenType.Identifier,
+      TokenType.EOF,
+    ]);
+  });
+
+  // --- Triple-quote strings ---
+
+  it("tokenizes triple-quote string as StringLiteral with indent stripping", () => {
+    const source = '"""\n    hello\n    world\n    """';
+    const tokens = new Lexer(source).tokenize();
+    expect(tokens[0].type).toBe(TokenType.StringLiteral);
+    expect(tokens[0].value).toBe("hello\nworld");
+  });
+
+  it("reports error on unterminated triple-quote string", () => {
+    const lexer = new Lexer('"""\nhello\nworld');
+    lexer.tokenize();
+    expect(lexer.diagnostics.length).toBe(1);
+    expect(lexer.diagnostics[0].message).toContain(
+      "Unterminated triple-quoted string",
+    );
+  });
 });

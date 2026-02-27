@@ -248,4 +248,113 @@ describe("TypeChecker", () => {
       var p = Shape.Point;
     `);
   });
+
+  // --- const immutability ---
+
+  it("rejects assignment to const variable", () => {
+    expectError("const x = 5; x = 10;", "Cannot assign to");
+  });
+
+  it("rejects compound assignment to const variable", () => {
+    expectError("const x = 5; x += 1;", "Cannot assign to");
+  });
+
+  it("rejects increment on const variable", () => {
+    expectError("const x = 5; x++;", "Cannot assign to");
+  });
+
+  // --- Null coalescing type checking ---
+
+  it("null coalescing on nullable unwraps to inner type", () => {
+    expectNoErrors(`
+      string? name = null;
+      var result = name ?? "default";
+    `);
+  });
+
+  it("null coalescing on non-nullable warns", () => {
+    const diags = check(
+      'string name = "hello"; var result = name ?? "default";',
+    );
+    const warnings = diags.filter((d) => d.severity === "warning");
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(warnings.some((w) => w.message.includes("not nullable"))).toBe(true);
+  });
+
+  // --- Array comprehension ---
+
+  it("array comprehension returns correct element type", () => {
+    expectNoErrors(`
+      int[] nums = [1, 2, 3];
+      var doubled = [x * 2 for (x in nums)];
+    `);
+  });
+
+  // --- Match exhaustiveness ---
+
+  it("warns on match missing enum variant", () => {
+    const diags = check(`
+      enum Color { Red, Green, Blue }
+      var c = Color.Red;
+      match (c) {
+        Color.Red => { print("red"); }
+        Color.Green => { print("green"); }
+      }
+    `);
+    const warnings = diags.filter((d) => d.severity === "warning");
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(warnings.some((w) => w.message.includes("missing variant"))).toBe(
+      true,
+    );
+  });
+
+  it("no warning when all enum variants are covered", () => {
+    const diags = check(`
+      enum Color { Red, Green, Blue }
+      var c = Color.Red;
+      match (c) {
+        Color.Red => { print("red"); }
+        Color.Green => { print("green"); }
+        Color.Blue => { print("blue"); }
+      }
+    `);
+    const warnings = diags.filter((d) => d.severity === "warning");
+    expect(warnings).toEqual([]);
+  });
+
+  it("no warning when match has wildcard pattern", () => {
+    const diags = check(`
+      enum Color { Red, Green, Blue }
+      var c = Color.Red;
+      match (c) {
+        Color.Red => { print("red"); }
+        _ => { print("other"); }
+      }
+    `);
+    const warnings = diags.filter((d) => d.severity === "warning");
+    expect(warnings).toEqual([]);
+  });
+
+  it("warns on match on Result missing Err", () => {
+    const diags = check(`
+      var result = Ok(5);
+      match (result) {
+        Ok(val) => { print(val); }
+      }
+    `);
+    const warnings = diags.filter((d) => d.severity === "warning");
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(warnings.some((w) => w.message.includes("missing pattern"))).toBe(
+      true,
+    );
+  });
+
+  // --- Generic type inference ---
+
+  it("infers return type from generic function call", () => {
+    expectNoErrors(`
+      T identity<T>(T v) { return v; }
+      var x = identity(5);
+    `);
+  });
 });

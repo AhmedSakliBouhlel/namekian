@@ -31,6 +31,7 @@ export const KEYWORDS: ReadonlyMap<string, TokenType> = new Map([
   ["take", TokenType.Take],
   ["from", TokenType.From],
   ["load", TokenType.Load],
+  ["const", TokenType.Const],
   ["true", TokenType.BoolLiteral],
   ["false", TokenType.BoolLiteral],
   ["null", TokenType.NullLiteral],

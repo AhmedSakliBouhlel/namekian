@@ -139,6 +139,7 @@ export class Parser {
         case TokenType.Try:
         case TokenType.Match:
         case TokenType.Var:
+        case TokenType.Const:
         case TokenType.Type:
           return;
         case TokenType.RightBrace:
@@ -336,6 +337,9 @@ export class Parser {
       return this.parseDestructureDeclaration();
     }
 
+    // const name = ...
+    if (t === TokenType.Const) return this.parseConstDeclaration();
+
     // var name = ... (must come before typed declaration check)
     if (t === TokenType.Var) return this.parseVarDeclaration();
 
@@ -373,6 +377,7 @@ export class Parser {
       name,
       type,
       initializer,
+      mutable: true,
       span,
     } as VariableDeclaration;
   }
@@ -384,7 +389,29 @@ export class Parser {
     this.expect(TokenType.Assign, "Expected '='");
     const initializer = this.parseExpression();
     this.expect(TokenType.Semicolon, "Expected ';'");
-    return { kind: "VariableDeclaration", name, initializer, span };
+    return {
+      kind: "VariableDeclaration",
+      name,
+      initializer,
+      mutable: true,
+      span,
+    };
+  }
+
+  private parseConstDeclaration(): VariableDeclaration {
+    const span = this.span();
+    this.advance(); // const
+    const name = this.expect(TokenType.Identifier, "Expected identifier").value;
+    this.expect(TokenType.Assign, "Expected '='");
+    const initializer = this.parseExpression();
+    this.expect(TokenType.Semicolon, "Expected ';'");
+    return {
+      kind: "VariableDeclaration",
+      name,
+      initializer,
+      mutable: false,
+      span,
+    };
   }
 
   private parseTypeParams(): string[] {
@@ -1073,10 +1100,19 @@ export class Parser {
   }
 
   private parsePipe(): Expression {
-    let left = this.parseOr();
+    let left = this.parseNullCoalesce();
     while (this.match(TokenType.PipeArrow)) {
-      const right = this.parseOr();
+      const right = this.parseNullCoalesce();
       left = { kind: "PipeExpr", left, right, span: left.span };
+    }
+    return left;
+  }
+
+  private parseNullCoalesce(): Expression {
+    let left = this.parseOr();
+    while (this.match(TokenType.QuestionQuestion)) {
+      const right = this.parseOr();
+      left = { kind: "NullCoalesceExpr", left, right, span: left.span };
     }
     return left;
   }
@@ -1347,11 +1383,15 @@ export class Parser {
       return { kind: "NewExpr", callee, args, span };
     }
 
-    // Array literal
+    // Array literal or comprehension
     if (this.match(TokenType.LeftBracket)) {
       const elements: Expression[] = [];
       if (!this.check(TokenType.RightBracket)) {
         elements.push(this.parseExpression());
+        // Check for array comprehension: [expr for (x in iter)]
+        if (this.check(TokenType.For)) {
+          return this.parseArrayComprehension(elements[0], span);
+        }
         while (this.match(TokenType.Comma)) {
           if (this.check(TokenType.RightBracket)) break;
           elements.push(this.parseExpression());
@@ -1386,6 +1426,36 @@ export class Parser {
     );
     this.advance();
     return { kind: "Identifier", name: "__error__", span };
+  }
+
+  private parseArrayComprehension(
+    body: Expression,
+    span: import("./ast.js").SourceSpan,
+  ): Expression {
+    this.advance(); // for
+    this.expect(TokenType.LeftParen, "Expected '('");
+    const variable = this.expect(
+      TokenType.Identifier,
+      "Expected variable name",
+    ).value;
+    this.expect(TokenType.In, "Expected 'in'");
+    const iterable = this.parseExpression();
+    this.expect(TokenType.RightParen, "Expected ')'");
+    let condition: Expression | undefined;
+    if (this.match(TokenType.If)) {
+      this.expect(TokenType.LeftParen, "Expected '('");
+      condition = this.parseExpression();
+      this.expect(TokenType.RightParen, "Expected ')'");
+    }
+    this.expect(TokenType.RightBracket, "Expected ']'");
+    return {
+      kind: "ArrayComprehension",
+      body,
+      variable,
+      iterable,
+      condition,
+      span,
+    };
   }
 
   private parseMapLiteral(): Expression {

@@ -44,6 +44,9 @@ export enum TokenType {
   Err = "Err",
   Result = "Result",
 
+  // Const
+  Const = "Const",
+
   // Module
   Take = "Take",
   From = "From",
@@ -78,6 +81,7 @@ export enum TokenType {
   Dot = "Dot",
   Spread = "Spread",
   QuestionDot = "QuestionDot",
+  QuestionQuestion = "QuestionQuestion",
   Question = "Question",
 
   // Delimiters

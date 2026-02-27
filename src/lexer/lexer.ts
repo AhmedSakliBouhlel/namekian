@@ -305,6 +305,14 @@ export class Lexer {
             startCol,
             startOffset,
           );
+        } else if (this.match("?")) {
+          this.addToken(
+            TokenType.QuestionQuestion,
+            "??",
+            startLine,
+            startCol,
+            startOffset,
+          );
         } else {
           this.addToken(
             TokenType.Question,
@@ -431,7 +439,13 @@ export class Lexer {
         break;
 
       case '"':
-        this.scanString(startLine, startCol, startOffset);
+        if (this.peek() === '"' && this.source[this.pos + 1] === '"') {
+          this.advance(); // second "
+          this.advance(); // third "
+          this.scanTripleQuoteString(startLine, startCol, startOffset);
+        } else {
+          this.scanString(startLine, startCol, startOffset);
+        }
         break;
 
       default:
@@ -583,6 +597,67 @@ export class Lexer {
       ? TokenType.StringLiteral
       : TokenType.StringInterpEnd;
     this.addToken(tokType, value, startLine, startCol, startOffset);
+  }
+
+  private scanTripleQuoteString(
+    startLine: number,
+    startCol: number,
+    startOffset: number,
+  ): void {
+    // Skip optional leading newline
+    if (this.pos < this.source.length && this.peek() === "\n") {
+      this.advance();
+    }
+    let value = "";
+    while (this.pos < this.source.length) {
+      if (
+        this.peek() === '"' &&
+        this.source[this.pos + 1] === '"' &&
+        this.source[this.pos + 2] === '"'
+      ) {
+        this.advance(); // "
+        this.advance(); // "
+        this.advance(); // "
+        const stripped = this.stripCommonIndent(value);
+        this.addToken(
+          TokenType.StringLiteral,
+          stripped,
+          startLine,
+          startCol,
+          startOffset,
+        );
+        return;
+      }
+      value += this.advance();
+    }
+    this.diagnostics.push(
+      errorDiag("Unterminated triple-quoted string", {
+        file: this.file,
+        line: startLine,
+        column: startCol,
+        offset: startOffset,
+      }),
+    );
+  }
+
+  private stripCommonIndent(text: string): string {
+    const lines = text.split("\n");
+    // Remove trailing empty line (before closing """)
+    if (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+      lines.pop();
+    }
+    // Find minimum indent of non-empty lines
+    let minIndent = Infinity;
+    for (const line of lines) {
+      if (line.trim() === "") continue;
+      const indent = line.match(/^[ \t]*/)?.[0].length ?? 0;
+      if (indent < minIndent) minIndent = indent;
+    }
+    if (minIndent === Infinity) minIndent = 0;
+    // Strip common indent
+    return lines
+      .map((line) => (line.trim() === "" ? "" : line.slice(minIndent)))
+      .join("\n");
   }
 
   private scanEscape(): string {

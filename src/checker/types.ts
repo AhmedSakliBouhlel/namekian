@@ -15,7 +15,8 @@ export type NkType =
   | NkResult
   | NkNullable
   | NkEnum
-  | NkTuple;
+  | NkTuple
+  | NkTypeVar;
 
 export interface NkInt {
   tag: "int";
@@ -55,6 +56,7 @@ export interface NkFunction {
   params: NkType[];
   returnType: NkType;
   isAsync?: boolean;
+  typeParams?: string[];
 }
 
 export interface NkStruct {
@@ -100,6 +102,11 @@ export interface NkEnum {
 export interface NkTuple {
   tag: "tuple";
   elements: NkType[];
+}
+
+export interface NkTypeVar {
+  tag: "typevar";
+  name: string;
 }
 
 // Singleton types
@@ -151,11 +158,14 @@ export function typeToString(t: NkType): string {
       const elems = t.elements.map(typeToString).join(", ");
       return `(${elems})`;
     }
+    case "typevar":
+      return t.name;
   }
 }
 
 export function isAssignable(target: NkType, source: NkType): boolean {
   if (target.tag === "any" || source.tag === "any") return true;
+  if (target.tag === "typevar" || source.tag === "typevar") return true;
   if (target.tag === source.tag) {
     if (target.tag === "array" && source.tag === "array") {
       return isAssignable(target.elementType, source.elementType);
