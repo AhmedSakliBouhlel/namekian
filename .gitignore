@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.js.map
+.DS_Store
+*.nk.js
+CLAUDE.md
+playground/nk.js

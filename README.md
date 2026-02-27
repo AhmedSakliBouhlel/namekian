@@ -1,0 +1,463 @@
+# Namekian
+
+A strongly-typed programming language that transpiles to JavaScript.
+
+```
+int add(int a, int b) {
+  return a + b;
+}
+
+var result = add(3, 4);
+print(result); // 7
+```
+
+## Features
+
+- **Strong typing** with C-style syntax (`int x = 5;`) and type inference (`var x = 5;`)
+- **String interpolation** — `"hello ${name}!"` compiles to JS template literals
+- **Generics** — `T identity<T>(T value)`, `struct Box<T> { T value; }`
+- **Structs & Classes** with auto-generated constructors and inheritance
+- **Interfaces & Enums** — interfaces are erased at compile time; enums support associated data (ADTs)
+- **Result types** — `Result<T, E>` with `Ok(v)` / `Err(e)` and `match` pattern matching
+- **Pipe operator** — `value |> transform |> format` chains function calls
+- **Tuple types** — `(int, string) pair = (1, "hello");` with type annotations
+- **Range expressions** — `0..10` (exclusive) and `0..=10` (inclusive) generate arrays
+- **Implicit async** — no async/await keywords; the compiler inserts them automatically
+- **Module system** — `take { X } from "./path"` and `load "package"`
+- **Destructuring** — `var { x, y } = point;` and `var [a, b] = arr;`
+- **Spread operator** — `[1, ...rest]` and `print(...args)`
+- **For..in loops** — `for (item in list)` iterates over arrays
+- **Compound assignments** — `+=`, `-=`, `*=`, `/=`, `%=`
+- **Increment/decrement** — `i++`, `i--`
+- **Ternary operator** — `x > 0 ? "yes" : "no"`
+- **Default parameters** — `int add(int a, int b = 0)`
+- **Type aliases** — `type ID = int;`
+- **Map/dictionary type** — `map<K, V>` with literal syntax `{ "key": value }` and built-in methods
+- **Array/string built-ins** — `.length`, `.push()`, `.map()`, `.includes()`, `.split()`, etc.
+- **Built-in stdlib** — `print`, `json`, `http`, `math`
+- **Nullable types** — `string? name = null;`
+- **Smart error messages** — "did you mean?" suggestions, type mismatch hints, function signature help
+- **Code formatter** — `nk fmt file.nk` canonicalizes formatting
+- **Watch mode** — `nk build file.nk --watch`
+- **Interactive REPL** — `nk` with no args starts a live session
+- **Web playground** — try Namekian in the browser at `playground/index.html`
+
+## Install
+
+```bash
+git clone https://github.com/AhmedSakliBouhlel/namekian.git
+cd namekian
+npm install
+npm link  # makes `nk` available globally
+```
+
+## Usage
+
+```bash
+nk build file.nk          # compile to JavaScript
+nk build file.nk --watch  # compile and watch for changes
+nk run file.nk            # compile and execute
+nk check file.nk          # type-check only
+nk fmt file.nk            # format source code
+nk tokens file.nk         # print token stream
+nk ast file.nk            # print AST as JSON
+nk                        # start interactive REPL
+nk repl                   # start interactive REPL
+```
+
+Options: `-o <dir>`, `--no-check`, `--ast`, `--tokens`, `--watch`/`-w`
+
+During development, use `npx tsx src/index.ts` instead of `nk`:
+
+```bash
+npx tsx src/index.ts run examples/hello.nk
+```
+
+### REPL
+
+Running `nk` with no arguments starts an interactive session:
+
+```
+$ nk
+Namekian REPL v0.1.0 — type .exit to quit
+nk> print("hello");
+hello
+nk> int add(int a, int b) { return a + b; }
+nk> print(add(3, 4));
+7
+nk> .exit
+Bye!
+```
+
+Commands: `.help`, `.exit`, `.clear`
+
+## Language Guide
+
+### Variables
+
+```
+int x = 5;
+float pi = 3.14;
+string name = "Namekian";
+bool active = true;
+var inferred = 42;          // type inferred as int
+string? nullable = null;    // nullable type
+int[] numbers = [1, 2, 3];  // array type
+```
+
+### String Interpolation
+
+```
+var name = "world";
+print("hello ${name}!");     // hello world!
+print("${a} + ${b} = ${a + b}");
+```
+
+### Functions
+
+```
+int add(int a, int b) {
+  return a + b;
+}
+
+// Default parameters
+int increment(int x, int step = 1) {
+  return x + step;
+}
+
+// Arrow functions
+var double = (int x) => x * 2;
+```
+
+### Generics
+
+```
+T identity<T>(T value) {
+  return value;
+}
+
+struct Box<T> {
+  T value;
+}
+
+T[] wrap<T>(T item) {
+  return [item];
+}
+```
+
+### Operators
+
+```
+// Compound assignment
+x += 10;
+y -= 1;
+z *= 2;
+
+// Increment / decrement
+i++;
+j--;
+
+// Ternary
+var label = x > 0 ? "positive" : "non-positive";
+
+// Spread
+var combined = [1, ...rest];
+print(...args);
+
+// Pipe operator
+var result = 5 |> double |> addOne;
+// compiles to: addOne(double(5))
+
+// Range
+var nums = 0..5;     // [0, 1, 2, 3, 4]
+var inc = 0..=5;     // [0, 1, 2, 3, 4, 5]
+for (i in 0..10) { print(i); }
+```
+
+### Tuples
+
+```
+var pair = (1, "hello");
+(int, string) typed = (42, "world");
+var triple = (true, 3.14, "ok");
+```
+
+Tuples compile to JavaScript arrays.
+
+### Destructuring
+
+```
+// Object destructuring
+struct Point { int x; int y; }
+var p = new Point(3, 4);
+var { x, y } = p;
+
+// Array destructuring
+var [first, second] = [1, 2];
+```
+
+### Type Aliases
+
+```
+type ID = int;
+type StringList = string[];
+```
+
+### Control Flow
+
+```
+if (x > 0) {
+  print("positive");
+} else {
+  print("non-positive");
+}
+
+while (x > 0) {
+  x--;
+}
+
+for (int i = 0; i < 10; i++) {
+  print(i);
+}
+
+// For..in loop (iterates over arrays)
+var items = [1, 2, 3];
+for (item in items) {
+  print(item);
+}
+```
+
+### Structs & Classes
+
+```
+struct Point {
+  int x;
+  int y;
+}
+
+var p = new Point(3, 4);
+print(p.x);
+
+class Dog : Animal {
+  string name;
+
+  void bark() {
+    print(this.name);
+  }
+}
+```
+
+### Enums
+
+```
+// Simple enum
+enum Color {
+  Red,
+  Green,
+  Blue
+}
+
+print(Color.Red); // 0
+
+// Enum with associated data (ADTs)
+enum Shape {
+  Circle(float radius),
+  Rect(float width, float height),
+  Point
+}
+
+var c = Shape.Circle(3.14);
+match (c) {
+  Shape.Circle(radius) => { print(radius); }
+  Shape.Rect(width, height) => { print(width * height); }
+  Shape.Point => { print("point"); }
+}
+```
+
+### Interfaces
+
+```
+interface Printable {
+  string toString();
+}
+```
+
+Interfaces are type-checked at compile time and erased in the JS output.
+
+### Result Types & Pattern Matching
+
+```
+Result<int, string> divide(int a, int b) {
+  if (b == 0) {
+    return Err("Division by zero");
+  }
+  return Ok(a / b);
+}
+
+var result = divide(10, 0);
+
+match (result) {
+  Ok(val) => { print(val); }
+  Err(msg) => { print(msg); }
+  _ => { print("unknown"); }
+}
+```
+
+### Implicit Async
+
+Functions that call async operations (like `http.get`) are automatically made async. No `async`/`await` keywords needed.
+
+```
+string fetchData(string url) {
+  var response = http.get(url);
+  return response.body;
+}
+
+// Compiles to:
+// async function fetchData(url) {
+//   let response = await __nk_http.get(url);
+//   return response.body;
+// }
+```
+
+### Modules
+
+```
+take { User, Post } from "./models"
+load "express"
+```
+
+### Array & String Built-ins
+
+```
+int[] nums = [1, 2, 3];
+var len = nums.length;
+nums.push(4);
+var has = nums.includes(2);
+var mapped = nums.map((int x) => x * 2);
+
+string s = "hello";
+var upper = s.toUpperCase();
+var parts = s.split(",");
+var trimmed = s.trim();
+```
+
+### Maps
+
+```
+// Map literal
+var scores = { "alice": 95, "bob": 87 };
+
+// Typed map
+map<string, int> ages = { "alice": 30 };
+
+// Built-in methods
+scores.get("alice");      // 95
+scores.set("charlie", 92);
+scores.has("bob");        // true
+scores.delete("bob");
+scores.size;              // 2
+scores.keys();            // string[]
+scores.values();          // int[]
+scores.clear();
+```
+
+### Standard Library
+
+| Function | Maps to |
+|----------|---------|
+| `print(x)` | `console.log(x)` |
+| `json.encode(v)` | `JSON.stringify(v)` |
+| `json.decode(s)` | `JSON.parse(s)` |
+| `http.get(url)` | async `fetch()` wrapper |
+| `http.post(url, body)` | async `fetch()` wrapper |
+| `math.sqrt(x)`, `math.abs(x)`, etc. | `Math.*` |
+
+### Try/Catch
+
+```
+try {
+  risky();
+} catch (e) {
+  print(e);
+}
+```
+
+### Comments
+
+```
+// line comment
+
+/* block
+   comment */
+```
+
+## Examples
+
+See the [`examples/`](examples/) directory:
+
+- `hello.nk` — variables, functions, control flow
+- `fibonacci.nk` — recursive fibonacci
+- `result-matching.nk` — Result types, structs, enums, pattern matching
+- `http-server.nk` — implicit async, http, json, math
+
+## Editor Support (VS Code)
+
+Namekian ships with an LSP server and a VS Code extension that provides:
+
+- **Diagnostics** — real-time error and warning squiggles as you type
+- **Hover** — hover over any expression to see its type
+- **Completions** — keywords, in-scope symbols, and member access (`.` trigger for arrays, strings, structs, etc.)
+- **Go-to-definition** — Ctrl+click on an identifier to jump to its declaration
+
+### Setup
+
+```bash
+npm run build                                    # build the compiler + LSP server
+cd namekian-vscode && npm install && npm run build  # build the VS Code extension
+```
+
+Then open the `namekian-vscode` folder in VS Code and press **F5** to launch an Extension Development Host with Namekian support enabled.
+
+## Web Playground
+
+Try Namekian directly in the browser — no install needed:
+
+```bash
+npm run playground   # build the browser bundle
+open playground/index.html
+```
+
+The playground includes a code editor, example programs, real-time diagnostics with hints, and a console that captures output.
+
+## Tests
+
+```bash
+npm test
+```
+
+236 tests across lexer, parser, type checker, code generator, and LSP modules.
+
+## Architecture
+
+```
+src/
+├── lexer/        # Tokenizer (single-pass character scanner)
+├── parser/       # Recursive descent + Pratt expression parser
+├── checker/      # Type checker with scoped symbol tables
+├── codegen/      # AST → JavaScript emitter
+├── formatter/    # AST pretty-printer (nk fmt)
+├── lsp/          # Language Server Protocol implementation
+├── stdlib/       # Type definitions for built-in modules
+├── errors/       # Diagnostics and pretty error reporting
+├── compiler.ts   # Pipeline: source → tokens → AST → check → JS
+├── browser.ts    # Browser entry point for the web playground
+└── cli.ts        # CLI argument parsing, commands, and REPL
+
+playground/       # Web playground (try Namekian in the browser)
+namekian-vscode/  # VS Code extension (LanguageClient)
+```
+
+## License
+
+MIT

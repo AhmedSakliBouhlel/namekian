@@ -1,0 +1,50 @@
+{
+  "name": "namekian-vscode",
+  "displayName": "Namekian",
+  "description": "Language support for Namekian (.nk files)",
+  "version": "0.1.0",
+  "publisher": "namekian",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:namekian"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "namekian",
+        "aliases": [
+          "Namekian",
+          "nk"
+        ],
+        "extensions": [
+          ".nk"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "namekian",
+        "scopeName": "source.namekian",
+        "path": "./syntaxes/namekian.tmLanguage.json"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "watch": "tsc -watch -p ."
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.4.0"
+  }
+}

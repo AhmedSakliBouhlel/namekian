@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Namekian Playground</title>
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --bg: #1e1e2e;
+        --surface: #181825;
+        --surface2: #11111b;
+        --text: #cdd6f4;
+        --subtext: #a6adc8;
+        --green: #a6e3a1;
+        --red: #f38ba8;
+        --yellow: #f9e2af;
+        --blue: #89b4fa;
+        --mauve: #cba6f7;
+        --border: #313244;
+        --overlay: #45475a;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 20px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
+      }
+
+      header h1 {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--green);
+      }
+
+      header h1 span {
+        color: var(--subtext);
+        font-weight: 400;
+        font-size: 13px;
+        margin-left: 8px;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      button {
+        background: var(--overlay);
+        color: var(--text);
+        border: 1px solid var(--border);
+        padding: 6px 16px;
+        border-radius: 6px;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      button:hover {
+        background: var(--border);
+      }
+
+      #run-btn {
+        background: var(--green);
+        color: var(--surface2);
+        border: none;
+        font-weight: 600;
+      }
+      #run-btn:hover {
+        opacity: 0.9;
+      }
+
+      .panels {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+      }
+
+      .panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .panel + .panel {
+        border-left: 1px solid var(--border);
+      }
+
+      .panel-header {
+        padding: 8px 16px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--subtext);
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+      }
+
+      #editor {
+        flex: 1;
+        background: var(--surface2);
+        color: var(--text);
+        font-family:
+          "SF Mono", "Fira Code", "JetBrains Mono", "Menlo", monospace;
+        font-size: 14px;
+        line-height: 1.6;
+        padding: 16px;
+        border: none;
+        resize: none;
+        outline: none;
+        tab-size: 2;
+      }
+
+      .output-area {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .output-section {
+        flex: 1;
+        overflow: auto;
+        padding: 16px;
+        font-family:
+          "SF Mono", "Fira Code", "JetBrains Mono", "Menlo", monospace;
+        font-size: 13px;
+        line-height: 1.6;
+        background: var(--surface2);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .output-section + .output-section {
+        border-top: 1px solid var(--border);
+      }
+
+      .diag-error {
+        color: var(--red);
+      }
+      .diag-warning {
+        color: var(--yellow);
+      }
+      .diag-hint {
+        color: var(--blue);
+        font-style: italic;
+      }
+      .output-log {
+        color: var(--text);
+      }
+      .output-err {
+        color: var(--red);
+      }
+      .js-output {
+        color: var(--mauve);
+      }
+
+      .examples {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+
+      select {
+        background: var(--overlay);
+        color: var(--text);
+        border: 1px solid var(--border);
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      @media (max-width: 768px) {
+        .panels {
+          flex-direction: column;
+        }
+        .panel + .panel {
+          border-left: none;
+          border-top: 1px solid var(--border);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Namekian<span>Playground v0.1.0</span></h1>
+      <div class="toolbar">
+        <div class="examples">
+          <select id="examples">
+            <option value="">Load example...</option>
+            <option value="hello">Hello World</option>
+            <option value="fibonacci">Fibonacci</option>
+            <option value="structs">Structs</option>
+            <option value="arrays">Arrays & Loops</option>
+            <option value="match">Match Expressions</option>
+            <option value="map">Maps</option>
+          </select>
+        </div>
+        <button id="run-btn">Run</button>
+      </div>
+    </header>
+
+    <div class="panels">
+      <div class="panel">
+        <div class="panel-header">Source (.nk)</div>
+        <textarea id="editor" spellcheck="false">
+// Welcome to Namekian!
+// Write your code here, then click Run.
+
+int add(int a, int b) {
+  return a + b;
+}
+
+var result = add(3, 4);
+print("3 + 4 = ${result}");
+
+string greet(string name) {
+  return "Hello, ${name}!";
+}
+
+print(greet("World"));</textarea
+        >
+      </div>
+      <div class="panel">
+        <div class="panel-header">Output</div>
+        <div class="output-area">
+          <div id="diagnostics" class="output-section"></div>
+          <div class="panel-header">Console</div>
+          <div id="console" class="output-section"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="nk.js"></script>
+    <script>
+      const EXAMPLES = {
+        hello: `// Hello World
+string name = "Namekian";
+int version = 1;
+print("Hello from ${name} v${version}!");
+
+// Variables and types
+int x = 42;
+float pi = 3.14159;
+bool active = true;
+string message = "The answer is ${x}";
+print(message);
+print("Pi is approximately ${pi}");
+print("Active: ${active}");`,
+
+        fibonacci: `// Fibonacci sequence
+int fibonacci(int n) {
+  if (n <= 1) {
+    return n;
+  }
+  return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+// Print first 10 fibonacci numbers
+for (int i = 0; i < 10; i = i + 1) {
+  print("fib(${i}) = ${fibonacci(i)}");
+}`,
+
+        structs: `// Structs with methods
+struct Point {
+  int x;
+  int y;
+
+  string toString() {
+    return "(${this.x}, ${this.y})";
+  }
+
+  Point add(Point other) {
+    return new Point(this.x + other.x, this.y + other.y);
+  }
+}
+
+var p1 = new Point(3, 4);
+var p2 = new Point(1, 2);
+var p3 = p1.add(p2);
+
+print("p1 = ${p1.toString()}");
+print("p2 = ${p2.toString()}");
+print("p1 + p2 = ${p3.toString()}");`,
+
+        arrays: `// Arrays and loops
+int[] numbers = [10, 20, 30, 40, 50];
+
+print("Numbers:");
+for (n in numbers) {
+  print("  ${n}");
+}
+
+// Array methods
+numbers.push(60);
+print("After push: length = ${numbers.length}");
+
+// Map and filter with arrow functions
+var doubled = numbers.map((int n) => n * 2);
+print("Doubled:");
+for (d in doubled) {
+  print("  ${d}");
+}`,
+
+        match: `// Match expressions
+enum Color { Red, Green, Blue }
+
+string colorName(Color c) {
+  match (c) {
+    Color.Red => { return "red"; }
+    Color.Green => { return "green"; }
+    Color.Blue => { return "blue"; }
+  }
+  return "unknown";
+}
+
+print("Color: ${colorName(Color.Red)}");
+print("Color: ${colorName(Color.Green)}");
+print("Color: ${colorName(Color.Blue)}");
+
+// Match with Result type
+Result<int, string> divide(int a, int b) {
+  if (b == 0) {
+    return Err("division by zero");
+  }
+  return Ok(a / b);
+}
+
+var result = divide(10, 3);
+match (result) {
+  Ok(val) => { print("10 / 3 = ${val}"); }
+  Err(msg) => { print("Error: ${msg}"); }
+}
+
+var result2 = divide(10, 0);
+match (result2) {
+  Ok(val) => { print("10 / 0 = ${val}"); }
+  Err(msg) => { print("Error: ${msg}"); }
+}`,
+
+        map: `// Maps (dictionaries)
+var scores = { "alice": 95, "bob": 87, "charlie": 92 };
+
+print("Alice's score: ${scores.get("alice")}");
+print("Map size: ${scores.size}");
+
+scores.set("dave", 88);
+print("Has dave? ${scores.has("dave")}");
+
+print("All keys:");
+var keys = scores.keys();
+for (k in keys) {
+  print("  ${k}: ${scores.get(k)}");
+}`,
+      };
+
+      const editor = document.getElementById("editor");
+      const diagnosticsEl = document.getElementById("diagnostics");
+      const consoleEl = document.getElementById("console");
+      const runBtn = document.getElementById("run-btn");
+      const examplesSelect = document.getElementById("examples");
+
+      examplesSelect.addEventListener("change", () => {
+        const key = examplesSelect.value;
+        if (key && EXAMPLES[key]) {
+          editor.value = EXAMPLES[key];
+          examplesSelect.value = "";
+        }
+      });
+
+      // Handle Tab key in editor
+      editor.addEventListener("keydown", (e) => {
+        if (e.key === "Tab") {
+          e.preventDefault();
+          const start = editor.selectionStart;
+          const end = editor.selectionEnd;
+          editor.value =
+            editor.value.substring(0, start) +
+            "  " +
+            editor.value.substring(end);
+          editor.selectionStart = editor.selectionEnd = start + 2;
+        }
+        // Ctrl/Cmd + Enter to run
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          run();
+        }
+      });
+
+      runBtn.addEventListener("click", run);
+
+      function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      function run() {
+        diagnosticsEl.innerHTML = "";
+        consoleEl.innerHTML = "";
+
+        const source = editor.value;
+        const result = globalThis.nk.compile(source);
+
+        // Show diagnostics
+        if (result.diagnostics.length > 0) {
+          let html = "";
+          for (const d of result.diagnostics) {
+            const cls = d.severity === "error" ? "diag-error" : "diag-warning";
+            html += `<span class="${cls}">${d.severity.toUpperCase()}</span> line ${d.location.line}:${d.location.column}\n`;
+            html += `  ${escapeHtml(d.message)}\n`;
+            if (d.hint) {
+              html += `  <span class="diag-hint">hint: ${escapeHtml(d.hint)}</span>\n`;
+            }
+            html += "\n";
+          }
+          diagnosticsEl.innerHTML = html;
+        } else {
+          diagnosticsEl.innerHTML =
+            '<span style="color:var(--green)">No errors</span>\n';
+        }
+
+        if (!result.success || !result.js) return;
+
+        // Capture console.log output
+        const logs = [];
+        const origLog = console.log;
+        const origError = console.error;
+        console.log = (...args) => {
+          logs.push({ type: "log", text: args.map(String).join(" ") });
+        };
+        console.error = (...args) => {
+          logs.push({ type: "err", text: args.map(String).join(" ") });
+        };
+
+        try {
+          const fn = new Function(result.js);
+          fn();
+        } catch (err) {
+          logs.push({ type: "err", text: `Runtime error: ${err.message}` });
+        }
+
+        console.log = origLog;
+        console.error = origError;
+
+        // Render console output
+        if (logs.length > 0) {
+          let html = "";
+          for (const entry of logs) {
+            const cls = entry.type === "err" ? "output-err" : "output-log";
+            html += `<span class="${cls}">${escapeHtml(entry.text)}</span>\n`;
+          }
+          consoleEl.innerHTML = html;
+        } else {
+          consoleEl.innerHTML =
+            '<span style="color:var(--subtext)">(no output)</span>\n';
+        }
+      }
+
+      // Auto-run on load
+      run();
+    </script>
+  </body>
+</html>
