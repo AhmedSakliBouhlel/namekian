@@ -14,16 +14,21 @@ print(result); // 7
 ## Features
 
 - **Strong typing** with C-style syntax (`int x = 5;`) and type inference (`var x = 5;`)
+- **Const declarations** — `const x = 5;` immutable bindings with compile-time reassignment errors
 - **String interpolation** — `"hello ${name}!"` compiles to JS template literals
-- **Generics** — `T identity<T>(T value)`, `struct Box<T> { T value; }`
+- **Multi-line strings** — triple-quote `"""..."""` with automatic indent stripping
+- **Generics** — `T identity<T>(T value)`, `struct Box<T> { T value; }` with type inference (`identity(5)` infers `T = int`)
 - **Structs & Classes** with auto-generated constructors and inheritance
 - **Interfaces & Enums** — interfaces are erased at compile time; enums support associated data (ADTs)
 - **Result types** — `Result<T, E>` with `Ok(v)` / `Err(e)` and `match` pattern matching
+- **Match exhaustiveness** — warnings when `match` doesn't cover all enum variants or Result patterns
+- **Null coalescing** — `name ?? "default"` with nullable type unwrapping
+- **Array comprehensions** — `[x * 2 for (x in nums)]` and `[x for (x in nums) if (x > 0)]`
 - **Pipe operator** — `value |> transform |> format` chains function calls
 - **Tuple types** — `(int, string) pair = (1, "hello");` with type annotations
 - **Range expressions** — `0..10` (exclusive) and `0..=10` (inclusive) generate arrays
 - **Implicit async** — no async/await keywords; the compiler inserts them automatically
-- **Module system** — `take { X } from "./path"` and `load "package"`
+- **Module system** — `take { X } from "./path"` and `load "package"` with cross-file type checking
 - **Destructuring** — `var { x, y } = point;` and `var [a, b] = arr;`
 - **Spread operator** — `[1, ...rest]` and `print(...args)`
 - **For..in loops** — `for (item in list)` iterates over arrays
@@ -37,10 +42,11 @@ print(result); // 7
 - **Built-in stdlib** — `print`, `json`, `http`, `math`
 - **Nullable types** — `string? name = null;`
 - **Smart error messages** — "did you mean?" suggestions, type mismatch hints, function signature help
+- **Source maps** — `nk build file.nk --source-map` generates `.js.map` for debugging
 - **Code formatter** — `nk fmt file.nk` canonicalizes formatting
 - **Watch mode** — `nk build file.nk --watch`
 - **Interactive REPL** — `nk` with no args starts a live session
-- **Web playground** — try Namekian in the browser at `playground/index.html`
+- **Web playground** — try Namekian in the browser with syntax highlighting
 
 ## Install
 
@@ -65,7 +71,7 @@ nk                        # start interactive REPL
 nk repl                   # start interactive REPL
 ```
 
-Options: `-o <dir>`, `--no-check`, `--ast`, `--tokens`, `--watch`/`-w`
+Options: `-o <dir>`, `--no-check`, `--ast`, `--tokens`, `--watch`/`-w`, `--source-map`
 
 During development, use `npx tsx src/index.ts` instead of `nk`:
 
@@ -101,6 +107,7 @@ float pi = 3.14;
 string name = "Namekian";
 bool active = true;
 var inferred = 42;          // type inferred as int
+const MAX = 100;            // immutable binding
 string? nullable = null;    // nullable type
 int[] numbers = [1, 2, 3];  // array type
 ```
@@ -111,6 +118,12 @@ int[] numbers = [1, 2, 3];  // array type
 var name = "world";
 print("hello ${name}!");     // hello world!
 print("${a} + ${b} = ${a + b}");
+
+// Multi-line strings (triple-quote)
+var text = """
+  This is a multi-line string.
+  Common indentation is stripped automatically.
+""";
 ```
 
 ### Functions
@@ -135,6 +148,10 @@ var double = (int x) => x * 2;
 T identity<T>(T value) {
   return value;
 }
+
+// Type inference — no need to write identity<int>(5)
+var x = identity(5);    // T inferred as int
+var s = identity("hi"); // T inferred as string
 
 struct Box<T> {
   T value;
@@ -168,10 +185,26 @@ print(...args);
 var result = 5 |> double |> addOne;
 // compiles to: addOne(double(5))
 
+// Null coalescing
+string? name = null;
+var display = name ?? "Anonymous"; // "Anonymous"
+
 // Range
 var nums = 0..5;     // [0, 1, 2, 3, 4]
 var inc = 0..=5;     // [0, 1, 2, 3, 4, 5]
 for (i in 0..10) { print(i); }
+```
+
+### Array Comprehensions
+
+```
+int[] nums = [1, 2, 3, 4, 5];
+
+// Map
+var doubled = [x * 2 for (x in nums)];       // [2, 4, 6, 8, 10]
+
+// Filter + map
+var evens = [x for (x in nums) if (x % 2 == 0)]; // [2, 4]
 ```
 
 ### Tuples
@@ -436,7 +469,7 @@ The playground includes a code editor, example programs, real-time diagnostics w
 npm test
 ```
 
-236 tests across lexer, parser, type checker, code generator, and LSP modules.
+265 tests across lexer, parser, type checker, code generator, and LSP modules.
 
 ## Architecture
 
