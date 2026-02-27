@@ -643,7 +643,23 @@ for (k in keys) {
         consoleEl.innerHTML = "";
 
         const source = editor.value;
-        const result = globalThis.nk.compile(source);
+
+        if (!globalThis.nk || !globalThis.nk.compile) {
+          diagnosticsEl.innerHTML =
+            '<span class="diag-error">ERROR</span> Compiler not loaded. Rebuild with: npm run playground\n';
+          return;
+        }
+
+        let result;
+        try {
+          result = globalThis.nk.compile(source);
+        } catch (err) {
+          diagnosticsEl.innerHTML =
+            '<span class="diag-error">ERROR</span> Compile failed: ' +
+            escapeHtml(err.message) +
+            "\n";
+          return;
+        }
 
         // Show diagnostics
         if (result.diagnostics.length > 0) {

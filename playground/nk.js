@@ -5,6 +5,89 @@
   var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
   // src/lexer/token.ts
+  var TokenType = /* @__PURE__ */ ((TokenType2) => {
+    TokenType2["IntLiteral"] = "IntLiteral";
+    TokenType2["FloatLiteral"] = "FloatLiteral";
+    TokenType2["StringLiteral"] = "StringLiteral";
+    TokenType2["BoolLiteral"] = "BoolLiteral";
+    TokenType2["NullLiteral"] = "NullLiteral";
+    TokenType2["Identifier"] = "Identifier";
+    TokenType2["Int"] = "Int";
+    TokenType2["Float"] = "Float";
+    TokenType2["String"] = "String";
+    TokenType2["Bool"] = "Bool";
+    TokenType2["Void"] = "Void";
+    TokenType2["Var"] = "Var";
+    TokenType2["Type"] = "Type";
+    TokenType2["Struct"] = "Struct";
+    TokenType2["Class"] = "Class";
+    TokenType2["Interface"] = "Interface";
+    TokenType2["Enum"] = "Enum";
+    TokenType2["New"] = "New";
+    TokenType2["This"] = "This";
+    TokenType2["If"] = "If";
+    TokenType2["Else"] = "Else";
+    TokenType2["For"] = "For";
+    TokenType2["While"] = "While";
+    TokenType2["Return"] = "Return";
+    TokenType2["Match"] = "Match";
+    TokenType2["Break"] = "Break";
+    TokenType2["Continue"] = "Continue";
+    TokenType2["In"] = "In";
+    TokenType2["Try"] = "Try";
+    TokenType2["Catch"] = "Catch";
+    TokenType2["Ok"] = "Ok";
+    TokenType2["Err"] = "Err";
+    TokenType2["Result"] = "Result";
+    TokenType2["Const"] = "Const";
+    TokenType2["Take"] = "Take";
+    TokenType2["From"] = "From";
+    TokenType2["Load"] = "Load";
+    TokenType2["Plus"] = "Plus";
+    TokenType2["Minus"] = "Minus";
+    TokenType2["Star"] = "Star";
+    TokenType2["Slash"] = "Slash";
+    TokenType2["Percent"] = "Percent";
+    TokenType2["Assign"] = "Assign";
+    TokenType2["Equal"] = "Equal";
+    TokenType2["NotEqual"] = "NotEqual";
+    TokenType2["Less"] = "Less";
+    TokenType2["LessEqual"] = "LessEqual";
+    TokenType2["Greater"] = "Greater";
+    TokenType2["GreaterEqual"] = "GreaterEqual";
+    TokenType2["And"] = "And";
+    TokenType2["Or"] = "Or";
+    TokenType2["Not"] = "Not";
+    TokenType2["PlusPlus"] = "PlusPlus";
+    TokenType2["MinusMinus"] = "MinusMinus";
+    TokenType2["PlusAssign"] = "PlusAssign";
+    TokenType2["MinusAssign"] = "MinusAssign";
+    TokenType2["StarAssign"] = "StarAssign";
+    TokenType2["SlashAssign"] = "SlashAssign";
+    TokenType2["PercentAssign"] = "PercentAssign";
+    TokenType2["Arrow"] = "Arrow";
+    TokenType2["PipeArrow"] = "PipeArrow";
+    TokenType2["DotDot"] = "DotDot";
+    TokenType2["Dot"] = "Dot";
+    TokenType2["Spread"] = "Spread";
+    TokenType2["QuestionDot"] = "QuestionDot";
+    TokenType2["QuestionQuestion"] = "QuestionQuestion";
+    TokenType2["Question"] = "Question";
+    TokenType2["LeftParen"] = "LeftParen";
+    TokenType2["RightParen"] = "RightParen";
+    TokenType2["LeftBrace"] = "LeftBrace";
+    TokenType2["RightBrace"] = "RightBrace";
+    TokenType2["LeftBracket"] = "LeftBracket";
+    TokenType2["RightBracket"] = "RightBracket";
+    TokenType2["Comma"] = "Comma";
+    TokenType2["Colon"] = "Colon";
+    TokenType2["Semicolon"] = "Semicolon";
+    TokenType2["StringInterpStart"] = "StringInterpStart";
+    TokenType2["StringInterpMiddle"] = "StringInterpMiddle";
+    TokenType2["StringInterpEnd"] = "StringInterpEnd";
+    TokenType2["EOF"] = "EOF";
+    return TokenType2;
+  })(TokenType || {});
   function token(type, value, line, column, offset) {
     return { type, value, line, column, offset };
   }
@@ -41,6 +124,7 @@
     ["take", "Take" /* Take */],
     ["from", "From" /* From */],
     ["load", "Load" /* Load */],
+    ["const", "Const" /* Const */],
     ["true", "BoolLiteral" /* BoolLiteral */],
     ["false", "BoolLiteral" /* BoolLiteral */],
     ["null", "NullLiteral" /* NullLiteral */]
@@ -341,6 +425,14 @@
               startCol,
               startOffset
             );
+          } else if (this.match("?")) {
+            this.addToken(
+              "QuestionQuestion" /* QuestionQuestion */,
+              "??",
+              startLine,
+              startCol,
+              startOffset
+            );
           } else {
             this.addToken(
               "Question" /* Question */,
@@ -460,7 +552,13 @@
           }
           break;
         case '"':
-          this.scanString(startLine, startCol, startOffset);
+          if (this.peek() === '"' && this.source[this.pos + 1] === '"') {
+            this.advance();
+            this.advance();
+            this.scanTripleQuoteString(startLine, startCol, startOffset);
+          } else {
+            this.scanString(startLine, startCol, startOffset);
+          }
           break;
         default:
           if (isDigit(ch)) {
@@ -583,6 +681,51 @@
       this.advance();
       const tokType = isStart ? "StringLiteral" /* StringLiteral */ : "StringInterpEnd" /* StringInterpEnd */;
       this.addToken(tokType, value, startLine, startCol, startOffset);
+    }
+    scanTripleQuoteString(startLine, startCol, startOffset) {
+      if (this.pos < this.source.length && this.peek() === "\n") {
+        this.advance();
+      }
+      let value = "";
+      while (this.pos < this.source.length) {
+        if (this.peek() === '"' && this.source[this.pos + 1] === '"' && this.source[this.pos + 2] === '"') {
+          this.advance();
+          this.advance();
+          this.advance();
+          const stripped = this.stripCommonIndent(value);
+          this.addToken(
+            "StringLiteral" /* StringLiteral */,
+            stripped,
+            startLine,
+            startCol,
+            startOffset
+          );
+          return;
+        }
+        value += this.advance();
+      }
+      this.diagnostics.push(
+        errorDiag("Unterminated triple-quoted string", {
+          file: this.file,
+          line: startLine,
+          column: startCol,
+          offset: startOffset
+        })
+      );
+    }
+    stripCommonIndent(text) {
+      const lines = text.split("\n");
+      if (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+        lines.pop();
+      }
+      let minIndent = Infinity;
+      for (const line of lines) {
+        if (line.trim() === "") continue;
+        const indent = line.match(/^[ \t]*/)?.[0].length ?? 0;
+        if (indent < minIndent) minIndent = indent;
+      }
+      if (minIndent === Infinity) minIndent = 0;
+      return lines.map((line) => line.trim() === "" ? "" : line.slice(minIndent)).join("\n");
     }
     scanEscape() {
       this.advance();
@@ -760,6 +903,7 @@
           case "Try" /* Try */:
           case "Match" /* Match */:
           case "Var" /* Var */:
+          case "Const" /* Const */:
           case "Type" /* Type */:
             return;
           case "RightBrace" /* RightBrace */:
@@ -900,6 +1044,7 @@
       if (t === "Var" /* Var */ && (this.lookAhead(1) === "LeftBrace" /* LeftBrace */ || this.lookAhead(1) === "LeftBracket" /* LeftBracket */)) {
         return this.parseDestructureDeclaration();
       }
+      if (t === "Const" /* Const */) return this.parseConstDeclaration();
       if (t === "Var" /* Var */) return this.parseVarDeclaration();
       if (this.isTypeStart() && this.looksLikeTypedDecl()) {
         return this.parseTypedDeclaration();
@@ -925,6 +1070,7 @@
         name,
         type,
         initializer,
+        mutable: true,
         span
       };
     }
@@ -935,7 +1081,28 @@
       this.expect("Assign" /* Assign */, "Expected '='");
       const initializer = this.parseExpression();
       this.expect("Semicolon" /* Semicolon */, "Expected ';'");
-      return { kind: "VariableDeclaration", name, initializer, span };
+      return {
+        kind: "VariableDeclaration",
+        name,
+        initializer,
+        mutable: true,
+        span
+      };
+    }
+    parseConstDeclaration() {
+      const span = this.span();
+      this.advance();
+      const name = this.expect("Identifier" /* Identifier */, "Expected identifier").value;
+      this.expect("Assign" /* Assign */, "Expected '='");
+      const initializer = this.parseExpression();
+      this.expect("Semicolon" /* Semicolon */, "Expected ';'");
+      return {
+        kind: "VariableDeclaration",
+        name,
+        initializer,
+        mutable: false,
+        span
+      };
     }
     parseTypeParams() {
       const typeParams = [];
@@ -1538,10 +1705,18 @@
       return expr;
     }
     parsePipe() {
-      let left = this.parseOr();
+      let left = this.parseNullCoalesce();
       while (this.match("PipeArrow" /* PipeArrow */)) {
-        const right = this.parseOr();
+        const right = this.parseNullCoalesce();
         left = { kind: "PipeExpr", left, right, span: left.span };
+      }
+      return left;
+    }
+    parseNullCoalesce() {
+      let left = this.parseOr();
+      while (this.match("QuestionQuestion" /* QuestionQuestion */)) {
+        const right = this.parseOr();
+        left = { kind: "NullCoalesceExpr", left, right, span: left.span };
       }
       return left;
     }
@@ -1794,6 +1969,9 @@
         const elements = [];
         if (!this.check("RightBracket" /* RightBracket */)) {
           elements.push(this.parseExpression());
+          if (this.check("For" /* For */)) {
+            return this.parseArrayComprehension(elements[0], span);
+          }
           while (this.match("Comma" /* Comma */)) {
             if (this.check("RightBracket" /* RightBracket */)) break;
             elements.push(this.parseExpression());
@@ -1821,6 +1999,32 @@
       );
       this.advance();
       return { kind: "Identifier", name: "__error__", span };
+    }
+    parseArrayComprehension(body, span) {
+      this.advance();
+      this.expect("LeftParen" /* LeftParen */, "Expected '('");
+      const variable = this.expect(
+        "Identifier" /* Identifier */,
+        "Expected variable name"
+      ).value;
+      this.expect("In" /* In */, "Expected 'in'");
+      const iterable = this.parseExpression();
+      this.expect("RightParen" /* RightParen */, "Expected ')'");
+      let condition;
+      if (this.match("If" /* If */)) {
+        this.expect("LeftParen" /* LeftParen */, "Expected '('");
+        condition = this.parseExpression();
+        this.expect("RightParen" /* RightParen */, "Expected ')'");
+      }
+      this.expect("RightBracket" /* RightBracket */, "Expected ']'");
+      return {
+        kind: "ArrayComprehension",
+        body,
+        variable,
+        iterable,
+        condition,
+        span
+      };
     }
     parseMapLiteral() {
       const span = this.span();
@@ -1983,18 +2187,24 @@
   var TypeEnvironment = class {
     constructor() {
       __publicField(this, "scopes", [/* @__PURE__ */ new Map()]);
+      __publicField(this, "constScopes", [/* @__PURE__ */ new Set()]);
       __publicField(this, "typeRegistry", /* @__PURE__ */ new Map());
     }
     enterScope() {
       this.scopes.push(/* @__PURE__ */ new Map());
+      this.constScopes.push(/* @__PURE__ */ new Set());
     }
     exitScope() {
       if (this.scopes.length > 1) {
         this.scopes.pop();
+        this.constScopes.pop();
       }
     }
-    define(name, type) {
+    define(name, type, isConst = false) {
       this.scopes[this.scopes.length - 1].set(name, type);
+      if (isConst) {
+        this.constScopes[this.constScopes.length - 1].add(name);
+      }
     }
     lookup(name) {
       for (let i = this.scopes.length - 1; i >= 0; i--) {
@@ -2002,6 +2212,13 @@
         if (t !== void 0) return t;
       }
       return void 0;
+    }
+    isConst(name) {
+      for (let i = this.constScopes.length - 1; i >= 0; i--) {
+        if (this.constScopes[i].has(name)) return true;
+        if (this.scopes[i].has(name)) return false;
+      }
+      return false;
     }
     isDefined(name) {
       return this.lookup(name) !== void 0;
@@ -2025,6 +2242,10 @@
     /** Returns all registered type names. */
     allTypeNames() {
       return [...this.typeRegistry.keys()];
+    }
+    /** Returns the outermost (top-level) scope map. */
+    getTopLevelScope() {
+      return this.scopes[0];
     }
   };
 
@@ -2076,10 +2297,13 @@
         const elems = t.elements.map(typeToString).join(", ");
         return `(${elems})`;
       }
+      case "typevar":
+        return t.name;
     }
   }
   function isAssignable(target, source) {
     if (target.tag === "any" || source.tag === "any") return true;
+    if (target.tag === "typevar" || source.tag === "typevar") return true;
     if (target.tag === source.tag) {
       if (target.tag === "array" && source.tag === "array") {
         return isAssignable(target.elementType, source.elementType);
@@ -2115,20 +2339,30 @@
 
   // src/checker/checker.ts
   var TypeChecker = class {
-    constructor(file = "<stdin>") {
+    constructor(file = "<stdin>", externalTypes) {
       __publicField(this, "diagnostics", []);
       __publicField(this, "typeMap", /* @__PURE__ */ new Map());
       __publicField(this, "symbolMap", /* @__PURE__ */ new Map());
       __publicField(this, "env", new TypeEnvironment());
       __publicField(this, "file");
       __publicField(this, "currentReturnType");
+      __publicField(this, "externalTypes");
       this.file = file;
+      this.externalTypes = externalTypes;
       this.registerStdlib();
     }
     check(program) {
       for (const stmt of program.body) {
         this.checkStatement(stmt);
       }
+    }
+    /** Returns the types of all top-level definitions after checking. */
+    getExportedTypes() {
+      const exports = /* @__PURE__ */ new Map();
+      for (const [name, type] of this.env.getTopLevelScope()) {
+        exports.set(name, type);
+      }
+      return exports;
     }
     registerStdlib() {
       this.env.define("print", {
@@ -2251,6 +2485,7 @@
       switch (stmt.kind) {
         case "VariableDeclaration": {
           const initType = this.checkExpression(stmt.initializer);
+          const isConst = stmt.mutable === false;
           if (stmt.type) {
             const declaredType = this.resolveType(stmt.type);
             if (!isAssignable(declaredType, initType)) {
@@ -2261,10 +2496,10 @@
                 hint
               );
             }
-            this.env.define(stmt.name, declaredType);
+            this.env.define(stmt.name, declaredType, isConst);
             this.recordSymbol(stmt.name, declaredType, stmt.span.offset);
           } else {
-            this.env.define(stmt.name, initType);
+            this.env.define(stmt.name, initType, isConst);
             this.recordSymbol(stmt.name, initType, stmt.span.offset);
           }
           break;
@@ -2272,7 +2507,7 @@
         case "FunctionDeclaration": {
           this.env.enterScope();
           for (const tp of stmt.typeParams) {
-            this.env.registerType(tp, NK_ANY);
+            this.env.registerType(tp, { tag: "typevar", name: tp });
           }
           const paramTypes = stmt.params.map(
             (p) => p.type ? this.resolveType(p.type) : NK_ANY
@@ -2281,14 +2516,15 @@
           const fnType = {
             tag: "function",
             params: paramTypes,
-            returnType
+            returnType,
+            typeParams: stmt.typeParams.length > 0 ? stmt.typeParams : void 0
           };
           this.env.exitScope();
           this.env.define(stmt.name, fnType);
           this.recordSymbol(stmt.name, fnType, stmt.span.offset);
           this.env.enterScope();
           for (const tp of stmt.typeParams) {
-            this.env.registerType(tp, NK_ANY);
+            this.env.registerType(tp, { tag: "typevar", name: tp });
           }
           for (let i = 0; i < stmt.params.length; i++) {
             this.env.define(stmt.params[i].name, paramTypes[i]);
@@ -2502,11 +2738,21 @@
           this.env.registerType(stmt.name, aliasedType);
           break;
         }
-        case "TakeStatement":
+        case "TakeStatement": {
           for (const name of stmt.names) {
-            this.env.define(name, NK_ANY);
+            let type = NK_ANY;
+            if (this.externalTypes) {
+              for (const [, types] of this.externalTypes) {
+                if (types.has(name)) {
+                  type = types.get(name);
+                  break;
+                }
+              }
+            }
+            this.env.define(name, type);
           }
           break;
+        }
         case "LoadStatement":
           this.env.define(stmt.name, NK_ANY);
           break;
@@ -2519,8 +2765,8 @@
           this.checkStatement(stmt.catchBlock);
           this.env.exitScope();
           break;
-        case "MatchStatement":
-          this.checkExpression(stmt.subject);
+        case "MatchStatement": {
+          const matchSubjType = this.checkExpression(stmt.subject);
           for (const arm of stmt.arms) {
             this.env.enterScope();
             this.bindMatchPattern(arm.pattern);
@@ -2531,7 +2777,9 @@
             }
             this.env.exitScope();
           }
+          this.checkMatchExhaustiveness(matchSubjType, stmt.arms, stmt);
           break;
+        }
         case "DestructureDeclaration": {
           const initType = this.checkExpression(stmt.initializer);
           for (const name of stmt.names) {
@@ -2634,8 +2882,9 @@
         }
         case "CallExpr": {
           const calleeType = this.checkExpression(expr.callee);
+          const argTypes = [];
           for (const arg of expr.args) {
-            this.checkExpression(arg);
+            argTypes.push(this.checkExpression(arg));
           }
           if (calleeType.tag === "function") {
             if (expr.args.length !== calleeType.params.length) {
@@ -2648,6 +2897,10 @@
                   `'${fnName}' expects (${paramStr})`
                 );
               }
+            }
+            if (calleeType.typeParams && calleeType.typeParams.length > 0) {
+              const substitution = this.inferTypeArgs(calleeType, argTypes);
+              return this.applySubstitution(calleeType.returnType, substitution);
             }
             return calleeType.returnType;
           }
@@ -2815,6 +3068,12 @@
           return NK_ANY;
         }
         case "AssignExpr": {
+          if (expr.target.kind === "Identifier" && this.env.isConst(expr.target.name)) {
+            this.error(
+              `Cannot assign to '${expr.target.name}' because it is a constant`,
+              expr
+            );
+          }
           const targetType = this.checkExpression(expr.target);
           const valueType = this.checkExpression(expr.value);
           if (targetType.tag !== "any" && !isAssignable(targetType, valueType)) {
@@ -2896,7 +3155,7 @@
           return { tag: "result", okType: NK_ANY, errType: valType };
         }
         case "MatchExpr": {
-          this.checkExpression(expr.subject);
+          const matchExprSubjType = this.checkExpression(expr.subject);
           let resultType = NK_ANY;
           for (const arm of expr.arms) {
             this.env.enterScope();
@@ -2908,6 +3167,7 @@
             }
             this.env.exitScope();
           }
+          this.checkMatchExhaustiveness(matchExprSubjType, expr.arms, expr);
           return resultType;
         }
         case "StringInterpolation": {
@@ -2919,12 +3179,25 @@
           return NK_STRING;
         }
         case "CompoundAssignExpr": {
+          if (expr.target.kind === "Identifier" && this.env.isConst(expr.target.name)) {
+            this.error(
+              `Cannot assign to '${expr.target.name}' because it is a constant`,
+              expr
+            );
+          }
           const targetType = this.checkExpression(expr.target);
           this.checkExpression(expr.value);
           return targetType;
         }
-        case "UpdateExpr":
+        case "UpdateExpr": {
+          if (expr.argument.kind === "Identifier" && this.env.isConst(expr.argument.name)) {
+            this.error(
+              `Cannot assign to '${expr.argument.name}' because it is a constant`,
+              expr
+            );
+          }
           return this.checkExpression(expr.argument);
+        }
         case "TernaryExpr": {
           this.checkExpression(expr.condition);
           const consType = this.checkExpression(expr.consequent);
@@ -2950,7 +3223,156 @@
           const elements = expr.elements.map((e) => this.checkExpression(e));
           return { tag: "tuple", elements };
         }
+        case "NullCoalesceExpr": {
+          const leftType = this.checkExpression(expr.left);
+          const rightType = this.checkExpression(expr.right);
+          if (leftType.tag === "nullable") {
+            return leftType.innerType;
+          }
+          if (leftType.tag === "null") {
+            return rightType;
+          }
+          if (leftType.tag !== "any") {
+            this.warn(
+              `Left side of '??' is not nullable (type '${typeToString(leftType)}')`,
+              expr
+            );
+          }
+          return leftType;
+        }
+        case "ArrayComprehension": {
+          const iterableType = this.checkExpression(expr.iterable);
+          this.env.enterScope();
+          let elemType = NK_ANY;
+          if (iterableType.tag === "array") {
+            elemType = iterableType.elementType;
+          }
+          this.env.define(expr.variable, elemType);
+          const bodyType = this.checkExpression(expr.body);
+          if (expr.condition) {
+            this.checkExpression(expr.condition);
+          }
+          this.env.exitScope();
+          return { tag: "array", elementType: bodyType };
+        }
       }
+    }
+    // --- Match exhaustiveness ---
+    checkMatchExhaustiveness(subjectType, arms, node) {
+      for (const arm of arms) {
+        if (arm.pattern.kind === "WildcardPattern" || arm.pattern.kind === "IdentifierPattern") {
+          return;
+        }
+      }
+      if (subjectType.tag === "enum") {
+        const covered = /* @__PURE__ */ new Set();
+        for (const arm of arms) {
+          if (arm.pattern.kind === "EnumVariantPattern") {
+            covered.add(arm.pattern.variant);
+          }
+        }
+        const missing = subjectType.variants.filter((v) => !covered.has(v));
+        if (missing.length > 0) {
+          this.warn(
+            `Non-exhaustive match: missing variant(s) ${missing.map((v) => `'${subjectType.name}.${v}'`).join(", ")}`,
+            node,
+            "Add a wildcard '_' pattern or handle all variants"
+          );
+        }
+      }
+      if (subjectType.tag === "result") {
+        let hasOk = false;
+        let hasErr = false;
+        for (const arm of arms) {
+          if (arm.pattern.kind === "OkPattern") hasOk = true;
+          if (arm.pattern.kind === "ErrPattern") hasErr = true;
+        }
+        if (!hasOk || !hasErr) {
+          const missing = [];
+          if (!hasOk) missing.push("'Ok'");
+          if (!hasErr) missing.push("'Err'");
+          this.warn(
+            `Non-exhaustive match: missing pattern(s) ${missing.join(", ")}`,
+            node,
+            "Add a wildcard '_' pattern or handle both Ok and Err"
+          );
+        }
+      }
+    }
+    // --- Generic type inference ---
+    inferTypeArgs(fnType, argTypes) {
+      const substitution = /* @__PURE__ */ new Map();
+      if (!fnType.typeParams) return substitution;
+      for (let i = 0; i < fnType.params.length && i < argTypes.length; i++) {
+        this.unify(fnType.params[i], argTypes[i], substitution);
+      }
+      return substitution;
+    }
+    unify(paramType, argType, substitution) {
+      if (paramType.tag === "typevar") {
+        if (!substitution.has(paramType.name)) {
+          substitution.set(paramType.name, argType);
+        }
+        return;
+      }
+      if (paramType.tag === "array" && argType.tag === "array") {
+        this.unify(paramType.elementType, argType.elementType, substitution);
+      }
+      if (paramType.tag === "nullable" && argType.tag === "nullable") {
+        this.unify(paramType.innerType, argType.innerType, substitution);
+      }
+      if (paramType.tag === "result" && argType.tag === "result") {
+        this.unify(paramType.okType, argType.okType, substitution);
+        this.unify(paramType.errType, argType.errType, substitution);
+      }
+      if (paramType.tag === "tuple" && argType.tag === "tuple") {
+        for (let i = 0; i < paramType.elements.length && i < argType.elements.length; i++) {
+          this.unify(paramType.elements[i], argType.elements[i], substitution);
+        }
+      }
+      if (paramType.tag === "map" && argType.tag === "map") {
+        this.unify(paramType.keyType, argType.keyType, substitution);
+        this.unify(paramType.valueType, argType.valueType, substitution);
+      }
+      if (paramType.tag === "function" && argType.tag === "function") {
+        this.unify(paramType.returnType, argType.returnType, substitution);
+        for (let i = 0; i < paramType.params.length && i < argType.params.length; i++) {
+          this.unify(paramType.params[i], argType.params[i], substitution);
+        }
+      }
+    }
+    applySubstitution(type, substitution) {
+      if (type.tag === "typevar") {
+        return substitution.get(type.name) ?? NK_ANY;
+      }
+      if (type.tag === "array") {
+        return {
+          tag: "array",
+          elementType: this.applySubstitution(type.elementType, substitution)
+        };
+      }
+      if (type.tag === "nullable") {
+        return {
+          tag: "nullable",
+          innerType: this.applySubstitution(type.innerType, substitution)
+        };
+      }
+      if (type.tag === "result") {
+        return {
+          tag: "result",
+          okType: this.applySubstitution(type.okType, substitution),
+          errType: this.applySubstitution(type.errType, substitution)
+        };
+      }
+      if (type.tag === "tuple") {
+        return {
+          tag: "tuple",
+          elements: type.elements.map(
+            (e) => this.applySubstitution(e, substitution)
+          )
+        };
+      }
+      return type;
     }
   };
   function isNumeric(t) {
@@ -3047,6 +3469,88 @@ function __nk_range(start, end, inclusive) {
 }
 `.trim();
 
+  // src/codegen/source-map.ts
+  var BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  function encodeVLQ(value) {
+    let vlq = value < 0 ? -value << 1 | 1 : value << 1;
+    let result = "";
+    do {
+      let digit = vlq & 31;
+      vlq >>>= 5;
+      if (vlq > 0) {
+        digit |= 32;
+      }
+      result += BASE64_CHARS[digit];
+    } while (vlq > 0);
+    return result;
+  }
+  var SourceMapGenerator = class {
+    constructor() {
+      __publicField(this, "mappings", []);
+    }
+    addMapping(mapping) {
+      this.mappings.push({ ...mapping });
+    }
+    toJSON(file, sources, sourcesContent) {
+      const mappings = this.encodeMappings();
+      const result = {
+        version: 3,
+        file,
+        sources,
+        mappings,
+        names: []
+      };
+      if (sourcesContent !== void 0) {
+        result.sourcesContent = sourcesContent;
+      }
+      return result;
+    }
+    encodeMappings() {
+      const byLine = /* @__PURE__ */ new Map();
+      for (const mapping of this.mappings) {
+        const line = mapping.generatedLine;
+        if (!byLine.has(line)) {
+          byLine.set(line, []);
+        }
+        byLine.get(line).push(mapping);
+      }
+      if (byLine.size === 0) {
+        return "";
+      }
+      const maxLine = Math.max(...byLine.keys());
+      const lineSegments = [];
+      let prevGeneratedColumn = 0;
+      let prevSourceIndex = 0;
+      let prevSourceLine = 0;
+      let prevSourceColumn = 0;
+      for (let lineNum = 0; lineNum <= maxLine; lineNum++) {
+        const lineMappings = byLine.get(lineNum);
+        if (!lineMappings || lineMappings.length === 0) {
+          lineSegments.push("");
+          prevGeneratedColumn = 0;
+          continue;
+        }
+        lineMappings.sort((a, b) => a.generatedColumn - b.generatedColumn);
+        prevGeneratedColumn = 0;
+        const segments = [];
+        for (const mapping of lineMappings) {
+          const deltaGeneratedColumn = mapping.generatedColumn - prevGeneratedColumn;
+          const deltaSourceIndex = mapping.sourceIndex - prevSourceIndex;
+          const deltaSourceLine = mapping.sourceLine - prevSourceLine;
+          const deltaSourceColumn = mapping.sourceColumn - prevSourceColumn;
+          const segment = encodeVLQ(deltaGeneratedColumn) + encodeVLQ(deltaSourceIndex) + encodeVLQ(deltaSourceLine) + encodeVLQ(deltaSourceColumn);
+          segments.push(segment);
+          prevGeneratedColumn = mapping.generatedColumn;
+          prevSourceIndex = mapping.sourceIndex;
+          prevSourceLine = mapping.sourceLine;
+          prevSourceColumn = mapping.sourceColumn;
+        }
+        lineSegments.push(segments.join(","));
+      }
+      return lineSegments.join(";");
+    }
+  };
+
   // src/codegen/codegen.ts
   var CodeGenerator = class {
     constructor() {
@@ -3057,8 +3561,13 @@ function __nk_range(start, end, inclusive) {
       __publicField(this, "usesJson", false);
       __publicField(this, "usesRange", false);
       __publicField(this, "asyncFunctions", /* @__PURE__ */ new Set());
+      __publicField(this, "projectMode", false);
+      __publicField(this, "trackSourceMap", false);
+      __publicField(this, "sourceMapGen", new SourceMapGenerator());
+      __publicField(this, "_pendingMappings", []);
     }
-    generate(program) {
+    generate(program, options) {
+      this.projectMode = options?.projectMode ?? false;
       this.detectFeatures(program);
       const preamble = [];
       if (this.usesResult) preamble.push(NK_RUNTIME);
@@ -3073,6 +3582,59 @@ function __nk_range(start, end, inclusive) {
         return preamble.join("\n\n") + "\n\n" + code;
       }
       return code;
+    }
+    generateWithMap(program, source, sourceFile) {
+      this.output = [];
+      this.indent = 0;
+      this.usesResult = false;
+      this.usesHttp = false;
+      this.usesJson = false;
+      this.usesRange = false;
+      this.asyncFunctions = /* @__PURE__ */ new Set();
+      this.sourceMapGen = new SourceMapGenerator();
+      this._pendingMappings = [];
+      this.trackSourceMap = true;
+      this.detectFeatures(program);
+      const preamble = [];
+      if (this.usesResult) preamble.push(NK_RUNTIME);
+      if (this.usesHttp) preamble.push(NK_HTTP_RUNTIME);
+      if (this.usesJson) preamble.push(NK_JSON_RUNTIME);
+      if (this.usesRange) preamble.push(NK_RANGE_RUNTIME);
+      let preambleLineCount = 0;
+      if (preamble.length > 0) {
+        const preambleText = preamble.join("\n\n") + "\n\n";
+        preambleLineCount = preambleText.split("\n").length - 1;
+      }
+      for (const stmt of program.body) {
+        this.emitStatement(stmt);
+      }
+      if (preambleLineCount > 0) {
+        const adjusted = new SourceMapGenerator();
+        this.sourceMapGen = this.buildOffsetSourceMap(preambleLineCount);
+      }
+      const code = this.output.join("\n");
+      const fullCode = preamble.length > 0 ? preamble.join("\n\n") + "\n\n" + code : code;
+      const jsFile = sourceFile.replace(/\.nk$/, ".js");
+      const mapFile = sourceFile.replace(/\.nk$/, ".js.map");
+      const sourceMapJson = JSON.stringify(
+        this.sourceMapGen.toJSON(jsFile, [sourceFile], [source])
+      );
+      this.trackSourceMap = false;
+      return {
+        code: fullCode + `
+//# sourceMappingURL=${mapFile}`,
+        sourceMap: sourceMapJson
+      };
+    }
+    buildOffsetSourceMap(lineOffset) {
+      const adjusted = new SourceMapGenerator();
+      for (const m of this._pendingMappings) {
+        adjusted.addMapping({
+          ...m,
+          generatedLine: m.generatedLine + lineOffset
+        });
+      }
+      return adjusted;
     }
     detectFeatures(program) {
       const source = JSON.stringify(program);
@@ -3171,6 +3733,10 @@ function __nk_range(start, end, inclusive) {
           return this.exprCallsAsync(expr.start, asyncCallees) || this.exprCallsAsync(expr.end, asyncCallees);
         case "TupleLiteral":
           return expr.elements.some((e) => this.exprCallsAsync(e, asyncCallees));
+        case "NullCoalesceExpr":
+          return this.exprCallsAsync(expr.left, asyncCallees) || this.exprCallsAsync(expr.right, asyncCallees);
+        case "ArrayComprehension":
+          return this.exprCallsAsync(expr.iterable, asyncCallees) || this.exprCallsAsync(expr.body, asyncCallees) || (expr.condition ? this.exprCallsAsync(expr.condition, asyncCallees) : false);
         default:
           return false;
       }
@@ -3185,15 +3751,34 @@ function __nk_range(start, end, inclusive) {
     }
     // --- Statements ---
     emitStatement(stmt) {
+      if (this.trackSourceMap && stmt.span) {
+        const mapping = {
+          generatedLine: this.output.length,
+          generatedColumn: 0,
+          sourceLine: stmt.span.line - 1,
+          sourceColumn: stmt.span.column - 1,
+          sourceIndex: 0
+        };
+        this.sourceMapGen.addMapping(mapping);
+        this._pendingMappings.push(mapping);
+      }
       switch (stmt.kind) {
-        case "VariableDeclaration":
-          this.emit(`let ${stmt.name} = ${this.genExpr(stmt.initializer)};`);
+        case "VariableDeclaration": {
+          const keyword = stmt.mutable === false ? "const" : "let";
+          const exportPrefix = this.projectMode && this.indent === 0 ? "export " : "";
+          this.emit(
+            `${exportPrefix}${keyword} ${stmt.name} = ${this.genExpr(stmt.initializer)};`
+          );
           break;
+        }
         case "FunctionDeclaration": {
           const isAsync = this.asyncFunctions.has(stmt.name);
-          const prefix = isAsync ? "async " : "";
+          const asyncPrefix = isAsync ? "async " : "";
+          const exportPrefix = this.projectMode && this.indent === 0 ? "export " : "";
           const params = this.genParams(stmt.params);
-          this.emit(`${prefix}function ${stmt.name}(${params}) {`);
+          this.emit(
+            `${exportPrefix}${asyncPrefix}function ${stmt.name}(${params}) {`
+          );
           this.indent++;
           this.emitBlock(stmt.body);
           this.indent--;
@@ -3265,7 +3850,8 @@ function __nk_range(start, end, inclusive) {
           break;
         case "StructDeclaration": {
           const fieldNames = stmt.fields.map((f) => f.name);
-          this.emit(`class ${stmt.name} {`);
+          const structExportPrefix = this.projectMode && this.indent === 0 ? "export " : "";
+          this.emit(`${structExportPrefix}class ${stmt.name} {`);
           this.indent++;
           this.emit(`constructor(${fieldNames.join(", ")}) {`);
           this.indent++;
@@ -3288,7 +3874,8 @@ function __nk_range(start, end, inclusive) {
         }
         case "ClassDeclaration": {
           const ext = stmt.superClass ? ` extends ${stmt.superClass}` : "";
-          this.emit(`class ${stmt.name}${ext} {`);
+          const classExportPrefix = this.projectMode && this.indent === 0 ? "export " : "";
+          this.emit(`${classExportPrefix}class ${stmt.name}${ext} {`);
           this.indent++;
           if (stmt.fields.length > 0) {
             const fieldNames = stmt.fields.map((f) => f.name);
@@ -3317,6 +3904,7 @@ function __nk_range(start, end, inclusive) {
         case "TypeAlias":
           break;
         case "EnumDeclaration": {
+          const enumExportPrefix = this.projectMode && this.indent === 0 ? "export " : "";
           const hasADT = stmt.variants.some(
             (v) => v.fields && v.fields.length > 0
           );
@@ -3330,7 +3918,7 @@ function __nk_range(start, end, inclusive) {
               return `${v.name}: Object.freeze({ __tag: "${v.name}" })`;
             });
             this.emit(
-              `const ${stmt.name} = Object.freeze({ ${entries.join(", ")} });`
+              `${enumExportPrefix}const ${stmt.name} = Object.freeze({ ${entries.join(", ")} });`
             );
           } else {
             const entries = stmt.variants.map((v, i) => {
@@ -3338,7 +3926,7 @@ function __nk_range(start, end, inclusive) {
               return `${v.name}: ${val}`;
             });
             this.emit(
-              `const ${stmt.name} = Object.freeze({ ${entries.join(", ")} });`
+              `${enumExportPrefix}const ${stmt.name} = Object.freeze({ ${entries.join(", ")} });`
             );
           }
           break;
@@ -3588,6 +4176,18 @@ ${"  ".repeat(this.indent)}}`;
           const elements = expr.elements.map((e) => this.genExpr(e)).join(", ");
           return `[${elements}]`;
         }
+        case "NullCoalesceExpr":
+          return `(${this.genExpr(expr.left)} ?? ${this.genExpr(expr.right)})`;
+        case "ArrayComprehension": {
+          const iter = this.genExpr(expr.iterable);
+          const body = this.genExpr(expr.body);
+          const v = expr.variable;
+          if (expr.condition) {
+            const cond = this.genExpr(expr.condition);
+            return `${iter}.filter((${v}) => ${cond}).map((${v}) => ${body})`;
+          }
+          return `${iter}.map((${v}) => ${body})`;
+        }
       }
     }
     genMatchExpr(expr) {
@@ -3679,5 +4279,5 @@ ${"  ".repeat(this.indent)}}`;
     const js = codegen.generate(ast);
     return { success: true, js, ast, diagnostics };
   }
-  globalThis.nk = { compile };
+  globalThis.nk = { compile, Lexer, TokenType };
 })();
