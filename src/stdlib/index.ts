@@ -19,9 +19,20 @@ export function getStdlibType(name: string): NkType | undefined {
       return NK_ANY;
     case "math":
       return NK_ANY;
+    case "fs":
+      return NK_ANY;
+    case "stream":
+      return NK_ANY;
     default:
       return undefined;
   }
 }
 
-export const STDLIB_MODULES = ["print", "http", "json", "math"] as const;
+export const STDLIB_MODULES = [
+  "print",
+  "http",
+  "json",
+  "math",
+  "fs",
+  "stream",
+] as const;
