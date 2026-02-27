@@ -1,0 +1,66 @@
+{
+  "name": "namekian",
+  "version": "0.1.0",
+  "description": "A strongly-typed programming language that transpiles to JavaScript",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./compiler": {
+      "import": "./dist/compiler.js",
+      "types": "./dist/compiler.d.ts"
+    }
+  },
+  "bin": {
+    "nk": "./bin/nk"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "nk": "tsx src/index.ts",
+    "playground": "esbuild src/browser.ts --bundle --format=iife --outfile=playground/nk.js --platform=browser --target=es2020",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "language",
+    "compiler",
+    "transpiler",
+    "typed",
+    "javascript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AhmedSakliBouhlel/namekian.git"
+  },
+  "author": "Ahmed Sakli Bouhlel",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "esbuild": "^0.21.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "optionalDependencies": {
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.12"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

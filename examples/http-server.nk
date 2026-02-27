@@ -1,0 +1,27 @@
+// HTTP example in Namekian (demonstrates implicit async)
+
+string fetchTitle(string url) {
+  var response = http.get(url);
+  return response.body;
+}
+
+// This function is auto-detected as async because it calls fetchTitle
+// which calls http.get (an async stdlib function)
+void main() {
+  var body = fetchTitle("https://jsonplaceholder.typicode.com/posts/1");
+  print(body);
+
+  // JSON encoding/decoding
+  var data = json.decode(body);
+  print(data);
+
+  var encoded = json.encode(data);
+  print(encoded);
+
+  // Math utilities
+  var x = math.sqrt(16.0);
+  print(x);
+  print(math.abs(-42.0));
+}
+
+main();

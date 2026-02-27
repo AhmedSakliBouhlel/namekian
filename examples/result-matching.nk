@@ -1,0 +1,45 @@
+// Result types and pattern matching in Namekian
+
+Result<int, string> divide(int a, int b) {
+  if (b == 0) {
+    return Err("Division by zero");
+  }
+  return Ok(a / b);
+}
+
+var result1 = divide(10, 2);
+var result2 = divide(10, 0);
+
+match (result1) {
+  Ok(val) => { print(val); }
+  Err(msg) => { print(msg); }
+}
+
+match (result2) {
+  Ok(val) => { print(val); }
+  Err(msg) => { print(msg); }
+}
+
+// Structs and classes
+struct Point {
+  int x;
+  int y;
+}
+
+var p = new Point(3, 4);
+print(p.x);
+print(p.y);
+
+enum Color {
+  Red,
+  Green,
+  Blue
+}
+
+print(Color.Red);
+print(Color.Blue);
+
+// Array operations
+int[] numbers = [1, 2, 3, 4, 5];
+print(numbers[0]);
+print(numbers[4]);
