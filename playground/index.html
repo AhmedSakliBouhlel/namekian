@@ -147,13 +147,17 @@
 
       #highlight {
         pointer-events: none;
+        z-index: 2;
         color: var(--text);
+        background: transparent;
         overflow: hidden;
       }
 
       #editor {
         background: transparent;
+        -webkit-appearance: none;
         color: transparent;
+        -webkit-text-fill-color: transparent;
         caret-color: var(--text);
         resize: none;
         outline: none;
