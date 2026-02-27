@@ -334,4 +334,65 @@ describe("CodeGenerator", () => {
     const js = gen(source);
     expect(js).toContain("hello\\nworld");
   });
+
+  // --- fs module ---
+
+  it("generates fs.read as await __nk_fs.read with preamble", () => {
+    const js = gen('var content = fs.read("data.txt");');
+    expect(js).toContain('await __nk_fs.read("data.txt")');
+    expect(js).toContain("__nk_fs");
+  });
+
+  it("generates fs.write as await __nk_fs.write", () => {
+    const js = gen('fs.write("out.txt", "hello");');
+    expect(js).toContain('await __nk_fs.write("out.txt", "hello")');
+  });
+
+  it("marks function calling fs as async", () => {
+    const js = gen(`
+      void loadFile() {
+        var content = fs.read("data.txt");
+        print(content);
+      }
+    `);
+    expect(js).toContain("async function loadFile");
+  });
+
+  // --- stream module ---
+
+  it("generates stream.reader as __nk_stream.reader (no await)", () => {
+    const js = gen('var reader = stream.reader("file.txt");');
+    expect(js).toContain('__nk_stream.reader("file.txt")');
+    expect(js).not.toContain("await __nk_stream.reader");
+  });
+
+  it("generates stream.pipe as __nk_stream.pipe (no await)", () => {
+    const js = gen('stream.pipe("a.txt", "b.txt");');
+    expect(js).toContain('__nk_stream.pipe("a.txt", "b.txt")');
+    expect(js).not.toContain("await __nk_stream.pipe");
+  });
+
+  it("does not mark function calling stream as async", () => {
+    const js = gen(`
+      void copyFile() {
+        stream.pipe("a.txt", "b.txt");
+      }
+    `);
+    expect(js).not.toContain("async function copyFile");
+    expect(js).toContain("function copyFile");
+  });
+
+  it("emits fs preamble only when fs is used", () => {
+    const withFs = gen('var x = fs.read("f");');
+    const without = gen("var x = 5;");
+    expect(withFs).toContain("__nk_fs");
+    expect(without).not.toContain("__nk_fs");
+  });
+
+  it("emits stream preamble only when stream is used", () => {
+    const withStream = gen('var r = stream.reader("f");');
+    const without = gen("var x = 5;");
+    expect(withStream).toContain("__nk_stream");
+    expect(without).not.toContain("__nk_stream");
+  });
 });

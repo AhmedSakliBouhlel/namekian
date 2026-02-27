@@ -11,6 +11,8 @@ import {
   NK_HTTP_RUNTIME,
   NK_JSON_RUNTIME,
   NK_RANGE_RUNTIME,
+  NK_FS_RUNTIME,
+  NK_STREAM_RUNTIME,
 } from "./js-runtime.js";
 import { SourceMapGenerator } from "./source-map.js";
 
@@ -21,6 +23,8 @@ export class CodeGenerator {
   private usesHttp = false;
   private usesJson = false;
   private usesRange = false;
+  private usesFs = false;
+  private usesStream = false;
   private asyncFunctions = new Set<string>();
   private projectMode = false;
   private trackSourceMap = false;
@@ -38,6 +42,8 @@ export class CodeGenerator {
     if (this.usesHttp) preamble.push(NK_HTTP_RUNTIME);
     if (this.usesJson) preamble.push(NK_JSON_RUNTIME);
     if (this.usesRange) preamble.push(NK_RANGE_RUNTIME);
+    if (this.usesFs) preamble.push(NK_FS_RUNTIME);
+    if (this.usesStream) preamble.push(NK_STREAM_RUNTIME);
 
     // Second pass: generate code
     for (const stmt of program.body) {
@@ -63,6 +69,8 @@ export class CodeGenerator {
     this.usesHttp = false;
     this.usesJson = false;
     this.usesRange = false;
+    this.usesFs = false;
+    this.usesStream = false;
     this.asyncFunctions = new Set<string>();
     this.sourceMapGen = new SourceMapGenerator();
     this._pendingMappings = [];
@@ -77,6 +85,8 @@ export class CodeGenerator {
     if (this.usesHttp) preamble.push(NK_HTTP_RUNTIME);
     if (this.usesJson) preamble.push(NK_JSON_RUNTIME);
     if (this.usesRange) preamble.push(NK_RANGE_RUNTIME);
+    if (this.usesFs) preamble.push(NK_FS_RUNTIME);
+    if (this.usesStream) preamble.push(NK_STREAM_RUNTIME);
 
     // Account for preamble lines in the output offset
     let preambleLineCount = 0;
@@ -156,6 +166,12 @@ export class CodeGenerator {
     if (source.includes('"json"')) {
       this.usesJson = true;
     }
+    if (source.includes('"fs"')) {
+      this.usesFs = true;
+    }
+    if (source.includes('"stream"')) {
+      this.usesStream = true;
+    }
     if (source.includes('"RangeExpr"')) {
       this.usesRange = true;
     }
@@ -165,7 +181,7 @@ export class CodeGenerator {
 
   private detectAsync(program: Program): void {
     // Seed: known async stdlib calls
-    const asyncCallees = new Set(["http"]);
+    const asyncCallees = new Set(["http", "fs"]);
 
     // Fixed-point: find functions that call async things
     let changed = true;
@@ -902,6 +918,10 @@ export class CodeGenerator {
         return "__nk_http";
       case "json":
         return "__nk_json";
+      case "fs":
+        return "__nk_fs";
+      case "stream":
+        return "__nk_stream";
       case "math":
         return "Math";
       default:
@@ -916,8 +936,9 @@ export class CodeGenerator {
     if (callee.kind === "MemberExpr") {
       if (callee.object.kind === "Identifier") {
         const objName = callee.object.name;
-        // http.get/post are async
+        // http.*/fs.* are async
         if (objName === "http") return true;
+        if (objName === "fs") return true;
         // Calls on known async functions
         return this.asyncFunctions.has(objName);
       }

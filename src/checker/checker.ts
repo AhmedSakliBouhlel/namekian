@@ -71,6 +71,10 @@ export class TypeChecker {
     this.env.define("json", NK_ANY);
     // math module
     this.env.define("math", NK_ANY);
+    // fs module (async file I/O)
+    this.env.define("fs", NK_ANY);
+    // stream module (sync I/O)
+    this.env.define("stream", NK_ANY);
   }
 
   private error(

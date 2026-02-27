@@ -1,0 +1,12 @@
+var content = fs.read("examples/hello.nk");
+print("File contents:");
+print(content);
+
+fs.write("output.txt", "Hello from Namekian!\n");
+print("Wrote output.txt");
+
+var reader = stream.reader("examples/hello.nk");
+for (line in reader.lines()) {
+  print(line);
+}
+reader.close();

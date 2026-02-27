@@ -405,6 +405,43 @@ scores.clear();
 | `http.get(url)` | async `fetch()` wrapper |
 | `http.post(url, body)` | async `fetch()` wrapper |
 | `math.sqrt(x)`, `math.abs(x)`, etc. | `Math.*` |
+| `fs.read(path)` | async `readFile()` (fs/promises) |
+| `fs.write(path, content)` | async `writeFile()` |
+| `fs.append(path, content)` | async `appendFile()` |
+| `fs.exists(path)` | async `access()` check |
+| `fs.remove(path)` | async `unlink()` |
+| `fs.readLines(path)` | async read + split |
+| `fs.readDir(path)` | async `readdir()` |
+| `stream.reader(path)` | sync `readFileSync()` |
+| `stream.writer(path)` | sync buffered writer |
+| `stream.pipe(src, dest)` | sync file copy |
+
+### File I/O
+
+```
+// Async file operations (functions using fs auto-become async)
+var content = fs.read("data.txt");
+fs.write("out.txt", "hello");
+fs.append("log.txt", "entry\n");
+bool exists = fs.exists("data.txt");
+fs.remove("temp.txt");
+string[] lines = fs.readLines("data.txt");
+string[] entries = fs.readDir("./src");
+
+// Sync streaming I/O
+var reader = stream.reader("large.txt");
+for (line in reader.lines()) {
+  print(line);
+}
+reader.close();
+
+var writer = stream.writer("output.txt");
+writer.writeLine("hello");
+writer.writeLine("world");
+writer.close();
+
+stream.pipe("input.txt", "output.txt");
+```
 
 ### Try/Catch
 
@@ -433,6 +470,7 @@ See the [`examples/`](examples/) directory:
 - `fibonacci.nk` — recursive fibonacci
 - `result-matching.nk` — Result types, structs, enums, pattern matching
 - `http-server.nk` — implicit async, http, json, math
+- `fs-demo.nk` — file I/O with fs and stream modules
 
 ## Editor Support (VS Code)
 

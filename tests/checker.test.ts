@@ -357,4 +357,14 @@ describe("TypeChecker", () => {
       var x = identity(5);
     `);
   });
+
+  // --- fs and stream stdlib ---
+
+  it("accepts fs module without undefined variable error", () => {
+    expectNoErrors('var content = fs.read("data.txt");');
+  });
+
+  it("accepts stream module without undefined variable error", () => {
+    expectNoErrors('var reader = stream.reader("file.txt");');
+  });
 });
