@@ -321,16 +321,16 @@ print(greet("World"));</textarea
         hello: `// Hello World
 string name = "Namekian";
 int version = 1;
-print("Hello from ${name} v${version}!");
+print("Hello from \${name} v\${version}!");
 
 // Variables and types
 int x = 42;
 float pi = 3.14159;
 bool active = true;
-string message = "The answer is ${x}";
+string message = "The answer is \${x}";
 print(message);
-print("Pi is approximately ${pi}");
-print("Active: ${active}");`,
+print("Pi is approximately \${pi}");
+print("Active: \${active}");`,
 
         fibonacci: `// Fibonacci sequence
 int fibonacci(int n) {
@@ -342,7 +342,7 @@ int fibonacci(int n) {
 
 // Print first 10 fibonacci numbers
 for (int i = 0; i < 10; i = i + 1) {
-  print("fib(${i}) = ${fibonacci(i)}");
+  print("fib(\${i}) = \${fibonacci(i)}");
 }`,
 
         structs: `// Structs with methods
@@ -351,7 +351,7 @@ struct Point {
   int y;
 
   string toString() {
-    return "(${this.x}, ${this.y})";
+    return "(\${this.x}, \${this.y})";
   }
 
   Point add(Point other) {
@@ -363,27 +363,27 @@ var p1 = new Point(3, 4);
 var p2 = new Point(1, 2);
 var p3 = p1.add(p2);
 
-print("p1 = ${p1.toString()}");
-print("p2 = ${p2.toString()}");
-print("p1 + p2 = ${p3.toString()}");`,
+print("p1 = \${p1.toString()}");
+print("p2 = \${p2.toString()}");
+print("p1 + p2 = \${p3.toString()}");`,
 
         arrays: `// Arrays and loops
 int[] numbers = [10, 20, 30, 40, 50];
 
 print("Numbers:");
 for (n in numbers) {
-  print("  ${n}");
+  print("  \${n}");
 }
 
 // Array methods
 numbers.push(60);
-print("After push: length = ${numbers.length}");
+print("After push: length = \${numbers.length}");
 
 // Map and filter with arrow functions
 var doubled = numbers.map((int n) => n * 2);
 print("Doubled:");
 for (d in doubled) {
-  print("  ${d}");
+  print("  \${d}");
 }`,
 
         match: `// Match expressions
@@ -398,9 +398,9 @@ string colorName(Color c) {
   return "unknown";
 }
 
-print("Color: ${colorName(Color.Red)}");
-print("Color: ${colorName(Color.Green)}");
-print("Color: ${colorName(Color.Blue)}");
+print("Color: \${colorName(Color.Red)}");
+print("Color: \${colorName(Color.Green)}");
+print("Color: \${colorName(Color.Blue)}");
 
 // Match with Result type
 Result<int, string> divide(int a, int b) {
@@ -412,29 +412,29 @@ Result<int, string> divide(int a, int b) {
 
 var result = divide(10, 3);
 match (result) {
-  Ok(val) => { print("10 / 3 = ${val}"); }
-  Err(msg) => { print("Error: ${msg}"); }
+  Ok(val) => { print("10 / 3 = \${val}"); }
+  Err(msg) => { print("Error: \${msg}"); }
 }
 
 var result2 = divide(10, 0);
 match (result2) {
-  Ok(val) => { print("10 / 0 = ${val}"); }
-  Err(msg) => { print("Error: ${msg}"); }
+  Ok(val) => { print("10 / 0 = \${val}"); }
+  Err(msg) => { print("Error: \${msg}"); }
 }`,
 
         map: `// Maps (dictionaries)
 var scores = { "alice": 95, "bob": 87, "charlie": 92 };
 
-print("Alice's score: ${scores.get("alice")}");
-print("Map size: ${scores.size}");
+print("Alice's score: \${scores.get("alice")}");
+print("Map size: \${scores.size}");
 
 scores.set("dave", 88);
-print("Has dave? ${scores.has("dave")}");
+print("Has dave? \${scores.has("dave")}");
 
 print("All keys:");
 var keys = scores.keys();
 for (k in keys) {
-  print("  ${k}: ${scores.get(k)}");
+  print("  \${k}: \${scores.get(k)}");
 }`,
       };
 
