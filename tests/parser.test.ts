@@ -734,4 +734,28 @@ describe("Parser", () => {
       }
     }
   });
+
+  // --- Tuple destructuring ---
+
+  it("parses tuple destructuring", () => {
+    const stmt = parseFirst("var (a, b) = t;");
+    expect(stmt.kind).toBe("DestructureDeclaration");
+    if (stmt.kind === "DestructureDeclaration") {
+      expect(stmt.pattern).toBe("tuple");
+      expect(stmt.names).toEqual(["a", "b"]);
+      expect(stmt.initializer).toMatchObject({
+        kind: "Identifier",
+        name: "t",
+      });
+    }
+  });
+
+  it("parses tuple destructuring with 3 elements", () => {
+    const stmt = parseFirst("var (x, y, z) = triple;");
+    expect(stmt.kind).toBe("DestructureDeclaration");
+    if (stmt.kind === "DestructureDeclaration") {
+      expect(stmt.pattern).toBe("tuple");
+      expect(stmt.names).toEqual(["x", "y", "z"]);
+    }
+  });
 });

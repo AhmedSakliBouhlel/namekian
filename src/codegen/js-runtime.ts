@@ -54,6 +54,12 @@ const __nk_fs = await (async () => {
 })();
 `.trim();
 
+export const NK_ASSERT_RUNTIME = `
+function __nk_assert(cond, msg) {
+  if (!cond) throw new Error("Assertion failed" + (msg ? ": " + msg : ""));
+}
+`.trim();
+
 export const NK_STREAM_RUNTIME = `
 const __nk_stream = await (async () => {
   const fs = await import("node:fs");

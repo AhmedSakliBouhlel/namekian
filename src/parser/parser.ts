@@ -337,6 +337,15 @@ export class Parser {
       return this.parseDestructureDeclaration();
     }
 
+    // var (a, b) = expr; — tuple destructuring
+    if (
+      t === TokenType.Var &&
+      this.lookAhead(1) === TokenType.LeftParen &&
+      this.looksLikeTupleDestructure()
+    ) {
+      return this.parseTupleDestructure();
+    }
+
     // const name = ...
     if (t === TokenType.Const) return this.parseConstDeclaration();
 
@@ -877,6 +886,47 @@ export class Parser {
     return {
       kind: "DestructureDeclaration",
       pattern,
+      names,
+      initializer,
+      span,
+    };
+  }
+
+  private looksLikeTupleDestructure(): boolean {
+    // var (ident, ident, ...) = ...
+    // Check: skip 'var', '(', then ident, comma pattern, then ')', '='
+    let i = 2; // skip var and (
+    if (this.lookAhead(i) !== TokenType.Identifier) return false;
+    i++;
+    while (this.lookAhead(i) === TokenType.Comma) {
+      i++;
+      if (this.lookAhead(i) !== TokenType.Identifier) return false;
+      i++;
+    }
+    return (
+      this.lookAhead(i) === TokenType.RightParen &&
+      this.lookAhead(i + 1) === TokenType.Assign
+    );
+  }
+
+  private parseTupleDestructure(): Statement {
+    const span = this.span();
+    this.advance(); // var
+    this.advance(); // (
+    const names: string[] = [];
+    names.push(this.expect(TokenType.Identifier, "Expected identifier").value);
+    while (this.match(TokenType.Comma)) {
+      names.push(
+        this.expect(TokenType.Identifier, "Expected identifier").value,
+      );
+    }
+    this.expect(TokenType.RightParen, "Expected ')'");
+    this.expect(TokenType.Assign, "Expected '='");
+    const initializer = this.parseExpression();
+    this.expect(TokenType.Semicolon, "Expected ';'");
+    return {
+      kind: "DestructureDeclaration",
+      pattern: "tuple" as const,
       names,
       initializer,
       span,

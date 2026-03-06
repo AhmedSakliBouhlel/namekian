@@ -367,4 +367,222 @@ describe("TypeChecker", () => {
   it("accepts stream module without undefined variable error", () => {
     expectNoErrors('var reader = stream.reader("file.txt");');
   });
+
+  // --- Feature 1: Type narrowing ---
+
+  it("narrows nullable type after != null check", () => {
+    expectNoErrors(`
+      string? name = null;
+      if (name != null) {
+        var len = name.length;
+      }
+    `);
+  });
+
+  it("narrows nullable with reversed null != x", () => {
+    expectNoErrors(`
+      string? name = "hello";
+      if (null != name) {
+        var len = name.length;
+      }
+    `);
+  });
+
+  it("narrows nullable in alternate block for == null", () => {
+    expectNoErrors(`
+      string? name = "hello";
+      if (name == null) {
+        print("is null");
+      } else {
+        var len = name.length;
+      }
+    `);
+  });
+
+  it("does not narrow non-nullable types", () => {
+    expectNoErrors(`
+      string name = "hello";
+      if (name != null) {
+        var len = name.length;
+      }
+    `);
+  });
+
+  // --- Feature 2: Interface enforcement ---
+
+  it("accepts class that implements interface correctly", () => {
+    expectNoErrors(`
+      interface Printable {
+        string toString();
+      }
+      class Foo : Printable {
+        string toString() {
+          return "foo";
+        }
+      }
+    `);
+  });
+
+  it("rejects class missing interface method", () => {
+    expectError(
+      `
+      interface Printable {
+        string toString();
+      }
+      class Foo : Printable {
+      }
+      `,
+      "does not implement method 'toString' from interface 'Printable'",
+    );
+  });
+
+  it("rejects class missing interface field", () => {
+    expectError(
+      `
+      interface HasName {
+        string name;
+      }
+      class Foo : HasName {
+      }
+      `,
+      "does not implement field 'name' from interface 'HasName'",
+    );
+  });
+
+  it("checks multiple interfaces", () => {
+    expectError(
+      `
+      interface A {
+        void doA();
+      }
+      interface B {
+        void doB();
+      }
+      class Foo : A, B {
+        void doA() { print("a"); }
+      }
+      `,
+      "does not implement method 'doB' from interface 'B'",
+    );
+  });
+
+  // --- Feature 3: Linter rules ---
+
+  it("warns on unreachable code after return", () => {
+    const diags = check(`
+      int foo() {
+        return 1;
+        print("unreachable");
+      }
+    `);
+    const warnings = diags.filter((d) => d.severity === "warning");
+    expect(warnings.some((w) => w.message.includes("Unreachable code"))).toBe(
+      true,
+    );
+  });
+
+  it("warns on unused variable in function", () => {
+    const diags = check(`
+      void foo() {
+        var x = 5;
+      }
+    `);
+    const warnings = diags.filter((d) => d.severity === "warning");
+    expect(
+      warnings.some((w) =>
+        w.message.includes("'x' is declared but never used"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn on used variable", () => {
+    const diags = check(`
+      void foo() {
+        var x = 5;
+        print(x);
+      }
+    `);
+    const warnings = diags.filter((d) => d.severity === "warning");
+    expect(warnings.some((w) => w.message.includes("never used"))).toBe(false);
+  });
+
+  it("does not warn on _ prefixed variables", () => {
+    const diags = check(`
+      void foo() {
+        var _unused = 5;
+      }
+    `);
+    const warnings = diags.filter((d) => d.severity === "warning");
+    expect(warnings.some((w) => w.message.includes("_unused"))).toBe(false);
+  });
+
+  it("warns on variable shadowing", () => {
+    const diags = check(`
+      var x = 10;
+      void foo() {
+        var x = 5;
+        print(x);
+      }
+    `);
+    const warnings = diags.filter((d) => d.severity === "warning");
+    expect(warnings.some((w) => w.message.includes("shadows"))).toBe(true);
+  });
+
+  // --- Feature 4: Array method type improvements ---
+
+  it("infers .map() return type from callback", () => {
+    expectNoErrors(`
+      int[] nums = [1, 2, 3];
+      var doubled = nums.map((int x) => x * 2);
+    `);
+  });
+
+  it(".filter() preserves element type", () => {
+    expectNoErrors(`
+      int[] nums = [1, 2, 3];
+      var filtered = nums.filter((int x) => x > 0);
+    `);
+  });
+
+  it(".find() returns nullable element type", () => {
+    expectNoErrors(`
+      int[] nums = [1, 2, 3];
+      var found = nums.find((int x) => x > 2);
+    `);
+  });
+
+  // --- Feature 5: Better error messages (already tested via suggestName) ---
+
+  it("suggests similar name on typo", () => {
+    const diags = check('prnt("hello");');
+    const errors = diags.filter((d) => d.severity === "error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].hint).toContain("print");
+  });
+
+  // --- Feature 6: Tuple destructuring ---
+
+  it("type-checks tuple destructuring", () => {
+    expectNoErrors(`
+      var t = (1, "hello");
+      var (a, b) = t;
+    `);
+  });
+
+  it("rejects tuple destructure count mismatch", () => {
+    expectError(
+      `
+      var t = (1, "hello", true);
+      var (a, b) = t;
+      `,
+      "expects 3 elements, got 2",
+    );
+  });
+
+  // --- Feature 9: assert stdlib ---
+
+  it("accepts assert calls", () => {
+    expectNoErrors("assert(true);");
+    expectNoErrors('assert(1 == 1, "should be equal");');
+  });
 });

@@ -13,6 +13,7 @@ import {
   NK_RANGE_RUNTIME,
   NK_FS_RUNTIME,
   NK_STREAM_RUNTIME,
+  NK_ASSERT_RUNTIME,
 } from "./js-runtime.js";
 import { SourceMapGenerator } from "./source-map.js";
 
@@ -25,6 +26,7 @@ export class CodeGenerator {
   private usesRange = false;
   private usesFs = false;
   private usesStream = false;
+  private usesAssert = false;
   private asyncFunctions = new Set<string>();
   private projectMode = false;
   private trackSourceMap = false;
@@ -44,6 +46,7 @@ export class CodeGenerator {
     if (this.usesRange) preamble.push(NK_RANGE_RUNTIME);
     if (this.usesFs) preamble.push(NK_FS_RUNTIME);
     if (this.usesStream) preamble.push(NK_STREAM_RUNTIME);
+    if (this.usesAssert) preamble.push(NK_ASSERT_RUNTIME);
 
     // Second pass: generate code
     for (const stmt of program.body) {
@@ -71,6 +74,7 @@ export class CodeGenerator {
     this.usesRange = false;
     this.usesFs = false;
     this.usesStream = false;
+    this.usesAssert = false;
     this.asyncFunctions = new Set<string>();
     this.sourceMapGen = new SourceMapGenerator();
     this._pendingMappings = [];
@@ -87,6 +91,7 @@ export class CodeGenerator {
     if (this.usesRange) preamble.push(NK_RANGE_RUNTIME);
     if (this.usesFs) preamble.push(NK_FS_RUNTIME);
     if (this.usesStream) preamble.push(NK_STREAM_RUNTIME);
+    if (this.usesAssert) preamble.push(NK_ASSERT_RUNTIME);
 
     // Account for preamble lines in the output offset
     let preambleLineCount = 0;
@@ -174,6 +179,9 @@ export class CodeGenerator {
     }
     if (source.includes('"RangeExpr"')) {
       this.usesRange = true;
+    }
+    if (source.includes('"assert"')) {
+      this.usesAssert = true;
     }
     // Detect async: functions calling http.get/post etc.
     this.detectAsync(program);
@@ -590,6 +598,7 @@ export class CodeGenerator {
         if (stmt.pattern === "object") {
           this.emit(`const { ${names} } = ${init};`);
         } else {
+          // Both "array" and "tuple" destructure to JS array destructuring
           this.emit(`const [${names}] = ${init};`);
         }
         break;
@@ -924,6 +933,8 @@ export class CodeGenerator {
         return "__nk_stream";
       case "math":
         return "Math";
+      case "assert":
+        return "__nk_assert";
       default:
         return name;
     }

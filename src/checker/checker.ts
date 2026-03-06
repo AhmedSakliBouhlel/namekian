@@ -75,6 +75,12 @@ export class TypeChecker {
     this.env.define("fs", NK_ANY);
     // stream module (sync I/O)
     this.env.define("stream", NK_ANY);
+    // assert(condition, message?)
+    this.env.define("assert", {
+      tag: "function",
+      params: [NK_BOOL, NK_STRING],
+      returnType: NK_VOID,
+    });
   }
 
   private error(
@@ -207,6 +213,10 @@ export class TypeChecker {
       case "VariableDeclaration": {
         const initType = this.checkExpression(stmt.initializer);
         const isConst = stmt.mutable === false;
+        // Feature 3: Variable shadowing detection
+        if (this.env.isDefinedInOuterScope(stmt.name)) {
+          this.warn(`Variable '${stmt.name}' shadows an outer variable`, stmt);
+        }
         if (stmt.type) {
           const declaredType = this.resolveType(stmt.type);
           if (!isAssignable(declaredType, initType)) {
@@ -260,6 +270,14 @@ export class TypeChecker {
         this.currentReturnType = returnType;
         this.checkStatement(stmt.body);
         this.currentReturnType = prevReturn;
+        // Feature 3: Unused variable warnings
+        for (const unused of this.env.getUnusedInCurrentScope()) {
+          this.warn(
+            `Variable '${unused}' is declared but never used`,
+            stmt,
+            `Prefix with '_' to suppress this warning`,
+          );
+        }
         this.env.exitScope();
         break;
       }
@@ -282,11 +300,29 @@ export class TypeChecker {
         break;
       }
 
-      case "IfStatement":
+      case "IfStatement": {
         this.checkExpression(stmt.condition);
+        const narrowing = this.narrowFromCondition(stmt.condition);
+        // Check consequent with narrowed types
+        if (narrowing.consequent.size > 0) {
+          this.env.pushOverrides(narrowing.consequent);
+        }
         this.checkStatement(stmt.consequent);
-        if (stmt.alternate) this.checkStatement(stmt.alternate);
+        if (narrowing.consequent.size > 0) {
+          this.env.popOverrides();
+        }
+        // Check alternate with alternate narrowing
+        if (stmt.alternate) {
+          if (narrowing.alternate.size > 0) {
+            this.env.pushOverrides(narrowing.alternate);
+          }
+          this.checkStatement(stmt.alternate);
+          if (narrowing.alternate.size > 0) {
+            this.env.popOverrides();
+          }
+        }
         break;
+      }
 
       case "WhileStatement":
         this.checkExpression(stmt.condition);
@@ -318,7 +354,30 @@ export class TypeChecker {
 
       case "BlockStatement":
         this.env.enterScope();
-        for (const s of stmt.body) this.checkStatement(s);
+        for (let i = 0; i < stmt.body.length; i++) {
+          this.checkStatement(stmt.body[i]);
+          // Feature 3: Unreachable code detection
+          if (
+            i < stmt.body.length - 1 &&
+            (stmt.body[i].kind === "ReturnStatement" ||
+              stmt.body[i].kind === "BreakStatement" ||
+              stmt.body[i].kind === "ContinueStatement")
+          ) {
+            this.warn(
+              `Unreachable code after ${stmt.body[i].kind === "ReturnStatement" ? "return" : stmt.body[i].kind === "BreakStatement" ? "break" : "continue"}`,
+              stmt.body[i + 1],
+            );
+            break;
+          }
+        }
+        // Feature 3: Unused variable warnings in block scopes
+        for (const unused of this.env.getUnusedInCurrentScope()) {
+          this.warn(
+            `Variable '${unused}' is declared but never used`,
+            stmt,
+            `Prefix with '_' to suppress this warning`,
+          );
+        }
         this.env.exitScope();
         break;
 
@@ -417,6 +476,60 @@ export class TypeChecker {
         this.env.define(stmt.name, classType);
         this.env.registerType(stmt.name, classType);
         this.recordSymbol(stmt.name, classType, stmt.span.offset);
+
+        // Feature 2: Interface enforcement
+        // Also check superClass — parser treats single name after ':' as superClass,
+        // but it may actually be an interface
+        const interfaceNames = [...stmt.interfaces];
+        if (stmt.superClass) {
+          const superType = this.env.lookupType(stmt.superClass);
+          if (superType && superType.tag === "interface") {
+            interfaceNames.push(stmt.superClass);
+          }
+        }
+        for (const ifaceName of interfaceNames) {
+          const ifaceType = this.env.lookupType(ifaceName);
+          if (!ifaceType) {
+            this.error(`Unknown interface '${ifaceName}'`, stmt);
+            continue;
+          }
+          if (ifaceType.tag === "interface") {
+            for (const [methodName, methodType] of ifaceType.methods) {
+              const classMethod = classType.methods.get(methodName);
+              if (!classMethod) {
+                this.error(
+                  `Class '${stmt.name}' does not implement method '${methodName}' from interface '${ifaceName}'`,
+                  stmt,
+                );
+              } else {
+                // Check param count
+                if (classMethod.params.length !== methodType.params.length) {
+                  this.error(
+                    `Method '${methodName}' in class '${stmt.name}' has wrong number of parameters for interface '${ifaceName}'`,
+                    stmt,
+                  );
+                }
+                // Check return type
+                if (
+                  !isAssignable(methodType.returnType, classMethod.returnType)
+                ) {
+                  this.error(
+                    `Method '${methodName}' in class '${stmt.name}' has incompatible return type for interface '${ifaceName}'`,
+                    stmt,
+                  );
+                }
+              }
+            }
+            for (const [fieldName] of ifaceType.fields) {
+              if (!classType.fields.has(fieldName)) {
+                this.error(
+                  `Class '${stmt.name}' does not implement field '${fieldName}' from interface '${ifaceName}'`,
+                  stmt,
+                );
+              }
+            }
+          }
+        }
 
         for (const m of stmt.methods) {
           this.env.enterScope();
@@ -545,17 +658,32 @@ export class TypeChecker {
 
       case "DestructureDeclaration": {
         const initType = this.checkExpression(stmt.initializer);
-        for (const name of stmt.names) {
-          if (stmt.pattern === "array" && initType.tag === "array") {
-            this.env.define(name, initType.elementType);
-          } else if (
-            stmt.pattern === "object" &&
-            (initType.tag === "struct" || initType.tag === "class")
-          ) {
-            const fieldType = initType.fields.get(name);
-            this.env.define(name, fieldType ?? NK_ANY);
-          } else {
-            this.env.define(name, NK_ANY);
+        if (stmt.pattern === "tuple" && initType.tag === "tuple") {
+          if (stmt.names.length !== initType.elements.length) {
+            this.error(
+              `Tuple destructuring expects ${initType.elements.length} elements, got ${stmt.names.length}`,
+              stmt,
+            );
+          }
+          for (let i = 0; i < stmt.names.length; i++) {
+            this.env.define(
+              stmt.names[i],
+              i < initType.elements.length ? initType.elements[i] : NK_ANY,
+            );
+          }
+        } else {
+          for (const name of stmt.names) {
+            if (stmt.pattern === "array" && initType.tag === "array") {
+              this.env.define(name, initType.elementType);
+            } else if (
+              stmt.pattern === "object" &&
+              (initType.tag === "struct" || initType.tag === "class")
+            ) {
+              const fieldType = initType.fields.get(name);
+              this.env.define(name, fieldType ?? NK_ANY);
+            } else {
+              this.env.define(name, NK_ANY);
+            }
           }
         }
         break;
@@ -698,15 +826,40 @@ export class TypeChecker {
           argTypes.push(this.checkExpression(arg));
         }
 
+        // Feature 4: Improved method return types for array methods
+        if (
+          expr.callee.kind === "MemberExpr" &&
+          calleeType.tag === "function"
+        ) {
+          const objType = this.typeMap.get(expr.callee.object.span.offset);
+          if (objType && objType.tag === "array") {
+            const elem = objType.elementType;
+            const method = expr.callee.property;
+            if (method === "map" && argTypes.length > 0) {
+              const cbType = argTypes[0];
+              if (cbType.tag === "function") {
+                return { tag: "array", elementType: cbType.returnType };
+              }
+            }
+            if (method === "filter") {
+              return { tag: "array", elementType: elem };
+            }
+            if (method === "find") {
+              return { tag: "nullable", innerType: elem };
+            }
+            if (method === "reduce" && argTypes.length >= 2) {
+              return argTypes[1]; // type of initial value
+            }
+          }
+        }
+
         if (calleeType.tag === "function") {
           if (expr.args.length !== calleeType.params.length) {
-            // print is variadic
-            if (
-              !(
-                expr.callee.kind === "Identifier" &&
-                expr.callee.name === "print"
-              )
-            ) {
+            // print and assert are variadic-ish
+            const isVariadic =
+              expr.callee.kind === "Identifier" &&
+              (expr.callee.name === "print" || expr.callee.name === "assert");
+            if (!isVariadic) {
               const fnName =
                 expr.callee.kind === "Identifier"
                   ? expr.callee.name
@@ -753,10 +906,17 @@ export class TypeChecker {
             case "map":
             case "filter":
             case "forEach":
+            case "find":
               return {
                 tag: "function",
                 params: [NK_ANY],
                 returnType: { tag: "array", elementType: NK_ANY },
+              };
+            case "reduce":
+              return {
+                tag: "function",
+                params: [NK_ANY, NK_ANY],
+                returnType: NK_ANY,
               };
             case "includes":
               return { tag: "function", params: [elem], returnType: NK_BOOL };
@@ -1115,6 +1275,52 @@ export class TypeChecker {
         return { tag: "array", elementType: bodyType };
       }
     }
+  }
+
+  // --- Type narrowing ---
+
+  private narrowFromCondition(condition: Expression): {
+    consequent: Map<string, NkType>;
+    alternate: Map<string, NkType>;
+  } {
+    const consequent = new Map<string, NkType>();
+    const alternate = new Map<string, NkType>();
+
+    if (condition.kind === "BinaryExpr") {
+      const { operator, left, right } = condition;
+      // x != null or x !== null → consequent: unwrap nullable
+      if (
+        (operator === "!=" || operator === "!==") &&
+        ((left.kind === "Identifier" && right.kind === "NullLiteral") ||
+          (left.kind === "NullLiteral" && right.kind === "Identifier"))
+      ) {
+        const ident =
+          left.kind === "Identifier"
+            ? left.name
+            : (right as { kind: "Identifier"; name: string }).name;
+        const varType = this.env.lookup(ident);
+        if (varType && varType.tag === "nullable") {
+          consequent.set(ident, varType.innerType);
+        }
+      }
+      // x == null or x === null → alternate: unwrap nullable
+      if (
+        (operator === "==" || operator === "===") &&
+        ((left.kind === "Identifier" && right.kind === "NullLiteral") ||
+          (left.kind === "NullLiteral" && right.kind === "Identifier"))
+      ) {
+        const ident =
+          left.kind === "Identifier"
+            ? left.name
+            : (right as { kind: "Identifier"; name: string }).name;
+        const varType = this.env.lookup(ident);
+        if (varType && varType.tag === "nullable") {
+          alternate.set(ident, varType.innerType);
+        }
+      }
+    }
+
+    return { consequent, alternate };
   }
 
   // --- Match exhaustiveness ---

@@ -395,4 +395,24 @@ describe("CodeGenerator", () => {
     expect(withStream).toContain("__nk_stream");
     expect(without).not.toContain("__nk_stream");
   });
+
+  // --- Assert ---
+
+  it("generates assert as __nk_assert", () => {
+    const js = gen("assert(true);");
+    expect(js).toContain("__nk_assert(true)");
+    expect(js).toContain("function __nk_assert");
+  });
+
+  it("generates assert with message", () => {
+    const js = gen('assert(false, "should fail");');
+    expect(js).toContain('__nk_assert(false, "should fail")');
+  });
+
+  // --- Tuple destructuring ---
+
+  it("generates tuple destructuring as array destructuring", () => {
+    const js = gen('var (a, b) = (1, "hello");');
+    expect(js).toContain('const [a, b] = [1, "hello"];');
+  });
 });
