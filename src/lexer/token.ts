@@ -36,6 +36,8 @@ export enum TokenType {
   Break = "Break",
   Continue = "Continue",
   In = "In",
+  Is = "Is",
+  Await = "Await",
 
   // Error handling
   Try = "Try",
@@ -79,6 +81,7 @@ export enum TokenType {
   PercentAssign = "PercentAssign",
   Arrow = "Arrow",
   PipeArrow = "PipeArrow",
+  Bar = "Bar",
   DotDot = "DotDot",
   Dot = "Dot",
   Spread = "Spread",

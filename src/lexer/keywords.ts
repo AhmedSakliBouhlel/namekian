@@ -23,6 +23,8 @@ export const KEYWORDS: ReadonlyMap<string, TokenType> = new Map([
   ["break", TokenType.Break],
   ["continue", TokenType.Continue],
   ["in", TokenType.In],
+  ["is", TokenType.Is],
+  ["await", TokenType.Await],
   ["try", TokenType.Try],
   ["catch", TokenType.Catch],
   ["Ok", TokenType.Ok],

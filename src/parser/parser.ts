@@ -17,6 +17,7 @@ import {
   SourceSpan,
   DeclareItem,
   DeclareModuleStatement,
+  TypeParam,
 } from "./ast.js";
 
 const TYPE_KEYWORDS = new Set([
@@ -159,40 +160,55 @@ export class Parser {
   }
 
   private looksLikeTypedDecl(): boolean {
-    // type ident
-    if (this.lookAhead(1) === TokenType.Identifier) return true;
-    // type? ident (nullable)
+    // Scan ahead past the initial type and any suffixes
+    let i = this.skipTypeAhead(0);
+    // Check for union: | type | type ...
+    while (this.lookAhead(i) === TokenType.Bar) {
+      i++; // skip |
+      i = this.skipTypeAhead(i);
+    }
+    return this.lookAhead(i) === TokenType.Identifier;
+  }
+
+  /** Starting at offset `i` (relative to current pos), skip a single type + suffixes.
+   *  Returns the offset after the type. */
+  private skipTypeAhead(i: number): number {
+    const tok = this.lookAhead(i);
+    // Generic: type<...>
     if (
-      this.lookAhead(1) === TokenType.Question &&
-      this.lookAhead(2) === TokenType.Identifier
-    )
-      return true;
-    // type[] ident (array)
-    if (
-      this.lookAhead(1) === TokenType.LeftBracket &&
-      this.lookAhead(2) === TokenType.RightBracket &&
-      this.lookAhead(3) === TokenType.Identifier
-    )
-      return true;
-    // type<...> ident (generic) — scan for matching >
-    if (this.lookAhead(1) === TokenType.Less) {
+      (tok === TokenType.Identifier ||
+        tok === TokenType.Result ||
+        TYPE_KEYWORDS.has(tok)) &&
+      this.lookAhead(i + 1) === TokenType.Less
+    ) {
+      i += 2; // skip name and <
       let depth = 1;
-      let i = 2;
       while (depth > 0 && this.lookAhead(i) !== TokenType.EOF) {
         if (this.lookAhead(i) === TokenType.Less) depth++;
         else if (this.lookAhead(i) === TokenType.Greater) depth--;
         i++;
       }
-      // After > could be ? or [] then ident, or just ident
-      const next = this.lookAhead(i);
-      if (next === TokenType.Identifier) return true;
-      if (
-        next === TokenType.Question &&
-        this.lookAhead(i + 1) === TokenType.Identifier
-      )
-        return true;
+    } else if (
+      tok === TokenType.Identifier ||
+      tok === TokenType.Result ||
+      TYPE_KEYWORDS.has(tok)
+    ) {
+      i++; // skip simple type name
+    } else {
+      return i; // not a type token
     }
-    return false;
+    // Array suffix: []
+    while (
+      this.lookAhead(i) === TokenType.LeftBracket &&
+      this.lookAhead(i + 1) === TokenType.RightBracket
+    ) {
+      i += 2;
+    }
+    // Nullable suffix: ?
+    if (this.lookAhead(i) === TokenType.Question) {
+      i++;
+    }
+    return i;
   }
 
   private looksLikeTupleTypeDecl(): boolean {
@@ -220,6 +236,21 @@ export class Parser {
   }
 
   private parseTypeAnnotation(): TypeAnnotation {
+    let type = this.parseSingleType();
+
+    // Union type: T | U | V
+    if (this.check(TokenType.Bar)) {
+      const types: TypeAnnotation[] = [type];
+      while (this.match(TokenType.Bar)) {
+        types.push(this.parseSingleType());
+      }
+      type = { kind: "UnionType", types, span: type.span };
+    }
+
+    return type;
+  }
+
+  private parseSingleType(): TypeAnnotation {
     let type = this.parsePrimaryType();
 
     // Array suffix
@@ -426,28 +457,36 @@ export class Parser {
     };
   }
 
-  private parseTypeParams(): string[] {
-    const typeParams: string[] = [];
+  private parseTypeParams(): TypeParam[] {
+    const typeParams: TypeParam[] = [];
     if (this.check(TokenType.Less)) {
       this.advance(); // <
-      typeParams.push(
-        this.expect(TokenType.Identifier, "Expected type parameter").value,
-      );
+      typeParams.push(this.parseTypeParam());
       while (this.match(TokenType.Comma)) {
-        typeParams.push(
-          this.expect(TokenType.Identifier, "Expected type parameter").value,
-        );
+        typeParams.push(this.parseTypeParam());
       }
       this.expect(TokenType.Greater, "Expected '>'");
     }
     return typeParams;
   }
 
+  private parseTypeParam(): TypeParam {
+    const name = this.expect(
+      TokenType.Identifier,
+      "Expected type parameter",
+    ).value;
+    let constraint: TypeAnnotation | undefined;
+    if (this.match(TokenType.Colon)) {
+      constraint = this.parseTypeAnnotation();
+    }
+    return { name, constraint };
+  }
+
   private parseFunctionRest(
     name: string,
     returnType: TypeAnnotation,
     span: SourceSpan,
-    typeParams: string[] = [],
+    typeParams: TypeParam[] = [],
   ): FunctionDeclaration {
     this.expect(TokenType.LeftParen, "Expected '('");
     const params = this.parseParameterList();
@@ -1258,6 +1297,18 @@ export class Parser {
   private parseEquality(): Expression {
     let left = this.parseComparison();
     while (true) {
+      // Type guard: expr is Type
+      if (this.check(TokenType.Is)) {
+        this.advance(); // is
+        const guardType = this.parseTypeAnnotation();
+        left = {
+          kind: "TypeGuardExpr",
+          expression: left,
+          guardType,
+          span: left.span,
+        };
+        continue;
+      }
       const op = this.match(TokenType.Equal, TokenType.NotEqual);
       if (!op) break;
       const right = this.parseComparison();
@@ -1346,6 +1397,10 @@ export class Parser {
 
   private parseUnary(): Expression {
     const span = this.span();
+    if (this.match(TokenType.Await)) {
+      const argument = this.parseUnary();
+      return { kind: "AwaitExpr", argument, span };
+    }
     if (this.match(TokenType.Not)) {
       const operand = this.parseUnary();
       return { kind: "UnaryExpr", operator: "!", operand, span };
@@ -1404,6 +1459,27 @@ export class Parser {
         const index = this.parseExpression();
         this.expect(TokenType.RightBracket, "Expected ']'");
         expr = { kind: "IndexExpr", object: expr, index, span: expr.span };
+      } else if (this.check(TokenType.Question)) {
+        // Postfix ? for Result unwrap — disambiguate from ternary
+        const after = this.lookAhead(1);
+        if (
+          after === TokenType.Semicolon ||
+          after === TokenType.RightParen ||
+          after === TokenType.RightBrace ||
+          after === TokenType.RightBracket ||
+          after === TokenType.Comma ||
+          after === TokenType.Dot ||
+          after === TokenType.EOF
+        ) {
+          this.advance(); // consume ?
+          expr = {
+            kind: "ResultUnwrapExpr",
+            expression: expr,
+            span: expr.span,
+          };
+        } else {
+          break; // let parseTernary handle it
+        }
       } else if (this.match(TokenType.PlusPlus)) {
         expr = {
           kind: "UpdateExpr",

@@ -17,6 +17,7 @@ import { convertDiagnostics } from "./diagnostics.js";
 import { findNodeAtOffset } from "./hover.js";
 import { getCompletions, LspCompletionItem } from "./completions.js";
 import { getDefinition } from "./definition.js";
+import { getReferences } from "./references.js";
 import { positionToOffset } from "./span-utils.js";
 import { typeToString } from "../checker/types.js";
 import { Program } from "../parser/ast.js";
@@ -44,6 +45,7 @@ connection.onInitialize((): InitializeResult => {
       },
       hoverProvider: true,
       definitionProvider: true,
+      referencesProvider: true,
     },
   };
 });
@@ -164,6 +166,32 @@ connection.onDefinition((params): Location | null => {
     offset,
     params.textDocument.uri,
   );
+});
+
+connection.onReferences((params): Location[] => {
+  const cached = docCache.get(params.textDocument.uri);
+  if (!cached?.ast) return [];
+
+  const offset = positionToOffset(
+    cached.source,
+    params.position.line,
+    params.position.character,
+  );
+
+  const refs = getReferences(
+    cached.ast,
+    cached.source,
+    offset,
+    params.textDocument.uri,
+  );
+
+  return refs.map((ref) => ({
+    uri: ref.uri,
+    range: {
+      start: { line: ref.line - 1, character: ref.column - 1 },
+      end: { line: ref.line - 1, character: ref.column - 1 },
+    },
+  }));
 });
 
 documents.listen(connection);

@@ -43,6 +43,9 @@ function parseArgs(args: string[]): CliOptions | null {
   if (args[0] === "install" && args.length >= 2) {
     return { command: "install", file: args[1] };
   }
+  if (args[0] === "add" && args.length >= 2) {
+    return { command: "add", file: args[1] };
+  }
 
   if (args.length < 2) return null;
 
@@ -108,6 +111,7 @@ Commands:
   test [dir]      Run *.test.nk files
   init            Create nk.toml in current directory
   install <repo>  Install dependency (owner/repo)
+  add <pkg>       Install npm package and generate type stub
   repl            Start interactive REPL (also: nk with no args)
 
 Options:
@@ -176,6 +180,23 @@ export async function cli(args: string[]): Promise<void> {
     manifest.dependencies[name] = `github:${spec}`;
     writeManifest(dir, manifest);
     console.log(`${GREEN}Installed ${spec}${RESET}`);
+    return;
+  }
+
+  if (opts.command === "add") {
+    const packageName = opts.file;
+    const { execSync } = await import("child_process");
+    try {
+      console.log(`Installing ${packageName} via npm...`);
+      execSync(`npm install ${packageName}`, { stdio: "inherit" });
+    } catch {
+      console.error(`${RED}Failed to install ${packageName}${RESET}`);
+      process.exit(1);
+    }
+    const { generateStub } = await import("./stub-generator.js");
+    const stubPath = generateStub(packageName);
+    console.log(`${GREEN}Added ${packageName}${RESET}`);
+    console.log(`${GRAY}Type stub: ${stubPath}${RESET}`);
     return;
   }
 

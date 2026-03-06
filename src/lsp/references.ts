@@ -1,22 +1,37 @@
 import { Program, Statement, Expression } from "../parser/ast.js";
+import { findNodeAtOffset } from "./hover.js";
 
-/**
- * Walk the AST to find the innermost expression node whose span contains
- * the given byte offset. Returns the Expression node or null.
- */
-export function findNodeAtOffset(
-  program: Program,
+export interface ReferenceLocation {
+  offset: number;
+  line: number;
+  column: number;
+}
+
+export function getReferences(
+  ast: Program,
+  _source: string,
   offset: number,
-): Expression | null {
-  let best: Expression | null = null;
+  uri: string,
+): { uri: string; offset: number; line: number; column: number }[] {
+  const node = findNodeAtOffset(ast, offset);
+  if (!node || node.kind !== "Identifier") return [];
+
+  const targetName = node.name;
+  const results: {
+    uri: string;
+    offset: number;
+    line: number;
+    column: number;
+  }[] = [];
 
   function visitExpr(expr: Expression): void {
-    // Check if this expression's span offset is close to the target
-    // Since we don't have end offsets, we track the closest node at or before the offset
-    if (expr.span.offset <= offset) {
-      if (!best || expr.span.offset >= best.span.offset) {
-        best = expr;
-      }
+    if (expr.kind === "Identifier" && expr.name === targetName) {
+      results.push({
+        uri,
+        offset: expr.span.offset,
+        line: expr.span.line,
+        column: expr.span.column,
+      });
     }
 
     switch (expr.kind) {
@@ -92,6 +107,26 @@ export function findNodeAtOffset(
       case "SpreadExpr":
         visitExpr(expr.argument);
         break;
+      case "PipeExpr":
+        visitExpr(expr.left);
+        visitExpr(expr.right);
+        break;
+      case "RangeExpr":
+        visitExpr(expr.start);
+        visitExpr(expr.end);
+        break;
+      case "TupleLiteral":
+        for (const el of expr.elements) visitExpr(el);
+        break;
+      case "NullCoalesceExpr":
+        visitExpr(expr.left);
+        visitExpr(expr.right);
+        break;
+      case "ArrayComprehension":
+        visitExpr(expr.iterable);
+        visitExpr(expr.body);
+        if (expr.condition) visitExpr(expr.condition);
+        break;
       case "TypeGuardExpr":
         visitExpr(expr.expression);
         break;
@@ -107,9 +142,26 @@ export function findNodeAtOffset(
   function visitStmt(stmt: Statement): void {
     switch (stmt.kind) {
       case "VariableDeclaration":
+        // Check if declaration name matches
+        if (stmt.name === targetName) {
+          results.push({
+            uri,
+            offset: stmt.span.offset,
+            line: stmt.span.line,
+            column: stmt.span.column,
+          });
+        }
         visitExpr(stmt.initializer);
         break;
       case "FunctionDeclaration":
+        if (stmt.name === targetName) {
+          results.push({
+            uri,
+            offset: stmt.span.offset,
+            line: stmt.span.line,
+            column: stmt.span.column,
+          });
+        }
         visitStmt(stmt.body);
         break;
       case "ReturnStatement":
@@ -166,9 +218,15 @@ export function findNodeAtOffset(
     }
   }
 
-  for (const stmt of program.body) {
+  for (const stmt of ast.body) {
     visitStmt(stmt);
   }
 
-  return best;
+  // Deduplicate by offset
+  const seen = new Set<number>();
+  return results.filter((r) => {
+    if (seen.has(r.offset)) return false;
+    seen.add(r.offset);
+    return true;
+  });
 }

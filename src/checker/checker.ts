@@ -185,6 +185,12 @@ export class TypeChecker {
         const elements = ann.elements.map((e) => this.resolveType(e));
         return { tag: "tuple", elements };
       }
+      case "UnionType": {
+        return {
+          tag: "union",
+          types: ann.types.map((t) => this.resolveType(t)),
+        };
+      }
     }
   }
 
@@ -243,7 +249,10 @@ export class TypeChecker {
         // Register generic type params as typevars in scope
         this.env.enterScope();
         for (const tp of stmt.typeParams) {
-          this.env.registerType(tp, { tag: "typevar", name: tp } as NkTypeVar);
+          this.env.registerType(tp.name, {
+            tag: "typevar",
+            name: tp.name,
+          } as NkTypeVar);
         }
         const paramTypes = stmt.params.map((p) =>
           p.type ? this.resolveType(p.type) : NK_ANY,
@@ -255,7 +264,10 @@ export class TypeChecker {
           tag: "function",
           params: paramTypes,
           returnType,
-          typeParams: stmt.typeParams.length > 0 ? stmt.typeParams : undefined,
+          typeParams:
+            stmt.typeParams.length > 0
+              ? stmt.typeParams.map((tp) => tp.name)
+              : undefined,
         };
         this.env.exitScope();
         this.env.define(stmt.name, fnType);
@@ -263,7 +275,10 @@ export class TypeChecker {
 
         this.env.enterScope();
         for (const tp of stmt.typeParams) {
-          this.env.registerType(tp, { tag: "typevar", name: tp } as NkTypeVar);
+          this.env.registerType(tp.name, {
+            tag: "typevar",
+            name: tp.name,
+          } as NkTypeVar);
         }
         for (let i = 0; i < stmt.params.length; i++) {
           this.env.define(stmt.params[i].name, paramTypes[i]);
@@ -390,7 +405,7 @@ export class TypeChecker {
       case "StructDeclaration": {
         this.env.enterScope();
         for (const tp of stmt.typeParams) {
-          this.env.registerType(tp, NK_ANY);
+          this.env.registerType(tp.name, NK_ANY);
         }
         const fields = new Map<string, NkType>();
         for (const f of stmt.fields) {
@@ -426,7 +441,7 @@ export class TypeChecker {
         for (const m of stmt.methods) {
           this.env.enterScope();
           for (const tp of stmt.typeParams) {
-            this.env.registerType(tp, NK_ANY);
+            this.env.registerType(tp.name, NK_ANY);
           }
           this.env.define("this", structType);
           for (const p of m.params) {
@@ -446,7 +461,7 @@ export class TypeChecker {
       case "ClassDeclaration": {
         this.env.enterScope();
         for (const tp of stmt.typeParams) {
-          this.env.registerType(tp, NK_ANY);
+          this.env.registerType(tp.name, NK_ANY);
         }
         const fields = new Map<string, NkType>();
         for (const f of stmt.fields) {
@@ -536,7 +551,7 @@ export class TypeChecker {
         for (const m of stmt.methods) {
           this.env.enterScope();
           for (const tp of stmt.typeParams) {
-            this.env.registerType(tp, NK_ANY);
+            this.env.registerType(tp.name, NK_ANY);
           }
           this.env.define("this", classType);
           for (const p of m.params) {
@@ -1323,6 +1338,29 @@ export class TypeChecker {
         this.env.exitScope();
         return { tag: "array", elementType: bodyType };
       }
+
+      case "TypeGuardExpr": {
+        this.checkExpression(expr.expression);
+        return NK_BOOL;
+      }
+
+      case "AwaitExpr": {
+        return this.checkExpression(expr.argument);
+      }
+
+      case "ResultUnwrapExpr": {
+        const exprType = this.checkExpression(expr.expression);
+        if (exprType.tag === "result") return exprType.okType;
+        if (exprType.tag !== "any") {
+          this.error(
+            "The '?' operator requires a Result type, got '" +
+              typeToString(exprType) +
+              "'",
+            expr,
+          );
+        }
+        return NK_ANY;
+      }
     }
   }
 
@@ -1367,6 +1405,15 @@ export class TypeChecker {
           alternate.set(ident, varType.innerType);
         }
       }
+    }
+
+    // Type guard: x is Type
+    if (
+      condition.kind === "TypeGuardExpr" &&
+      condition.expression.kind === "Identifier"
+    ) {
+      const guardedType = this.resolveType(condition.guardType);
+      consequent.set(condition.expression.name, guardedType);
     }
 
     return { consequent, alternate };
@@ -1484,6 +1531,15 @@ export class TypeChecker {
         this.unify(paramType.params[i], argType.params[i], substitution);
       }
     }
+    if (paramType.tag === "union" && argType.tag === "union") {
+      for (
+        let i = 0;
+        i < paramType.types.length && i < argType.types.length;
+        i++
+      ) {
+        this.unify(paramType.types[i], argType.types[i], substitution);
+      }
+    }
   }
 
   private applySubstitution(
@@ -1518,6 +1574,12 @@ export class TypeChecker {
         elements: type.elements.map((e) =>
           this.applySubstitution(e, substitution),
         ),
+      };
+    }
+    if (type.tag === "union") {
+      return {
+        tag: "union",
+        types: type.types.map((t) => this.applySubstitution(t, substitution)),
       };
     }
     return type;
