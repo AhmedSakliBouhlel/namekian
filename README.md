@@ -17,17 +17,19 @@ print(result); // 7
 - **Const declarations** — `const x = 5;` immutable bindings with compile-time reassignment errors
 - **String interpolation** — `"hello ${name}!"` compiles to JS template literals
 - **Multi-line strings** — triple-quote `"""..."""` with automatic indent stripping
-- **Generics** — `T identity<T>(T value)`, `struct Box<T> { T value; }` with type inference (`identity(5)` infers `T = int`)
+- **Union types** — `int | string x = 42;` with full assignability checking
+- **Type guards** — `x is string` narrows types inside `if` blocks, compiles to `typeof`/`instanceof`
+- **Generics** — `T identity<T>(T value)`, `struct Box<T> { T value; }` with type inference and optional constraints (`T : Comparable`)
 - **Structs & Classes** with auto-generated constructors and inheritance
 - **Interfaces & Enums** — interfaces are enforced at compile time (missing methods/fields are errors) and erased in JS output; enums support associated data (ADTs)
-- **Result types** — `Result<T, E>` with `Ok(v)` / `Err(e)` and `match` pattern matching
+- **Result types** — `Result<T, E>` with `Ok(v)` / `Err(e)`, `match` pattern matching, and `?` operator for ergonomic unwrapping
 - **Match exhaustiveness** — warnings when `match` doesn't cover all enum variants or Result patterns
 - **Null coalescing** — `name ?? "default"` with nullable type unwrapping
 - **Array comprehensions** — `[x * 2 for (x in nums)]` and `[x for (x in nums) if (x > 0)]`
 - **Pipe operator** — `value |> transform |> format` chains function calls
 - **Tuple types** — `(int, string) pair = (1, "hello");` with type annotations
 - **Range expressions** — `0..10` (exclusive) and `0..=10` (inclusive) generate arrays
-- **Implicit async** — no async/await keywords; the compiler inserts them automatically
+- **Async/await** — explicit `await` keyword, plus implicit async propagation for `http` and `fs` calls
 - **Module system** — `take { X } from "./path"` and `load "package"` with cross-file type checking
 - **Type declarations** — `declare module "pkg" { ... }` and `.nkd` files give npm packages proper types
 - **Type narrowing** — `T?` is narrowed to `T` inside `if (x != null)` blocks
@@ -50,7 +52,7 @@ print(result); // 7
 - **Watch mode** — `nk build file.nk --watch` with `--run` for live reload
 - **Interactive REPL** — `nk` with no args starts a live session with tab completion, type display, and colored output
 - **Test runner** — `nk test` runs `*.test.nk` files with built-in `assert()`
-- **Package manager** — `nk init` creates `nk.toml`, `nk install owner/repo` fetches dependencies
+- **Package manager** — `nk init` creates `nk.toml`, `nk install owner/repo` fetches dependencies, `nk add <pkg>` installs npm packages with type stubs
 - **Web playground** — try Namekian in the browser with syntax highlighting
 
 ## Install
@@ -75,6 +77,7 @@ nk test                   # run *.test.nk files with assert()
 nk test tests/            # run tests in a specific directory
 nk init                   # create nk.toml in current directory
 nk install owner/repo     # install dependency from GitHub
+nk add <package>          # npm install + generate type stub
 nk tokens file.nk         # print token stream
 nk ast file.nk            # print AST as JSON
 nk                        # start interactive REPL
@@ -121,6 +124,32 @@ const MAX = 100;            // immutable binding
 string? nullable = null;    // nullable type
 int[] numbers = [1, 2, 3];  // array type
 ```
+
+### Union Types
+
+```
+int | string value = 42;
+value = "hello";  // also valid
+
+int | string | bool flexible = true;
+```
+
+### Type Guards
+
+```
+int | string x = "hello";
+
+if (x is string) {
+  // x is narrowed to string inside this block
+  var len = x.length;
+}
+
+if (x is int) {
+  print(x + 1);
+}
+```
+
+Type guards compile to `typeof` checks for primitives and `instanceof` for structs/classes.
 
 ### String Interpolation
 
@@ -169,6 +198,11 @@ struct Box<T> {
 
 T[] wrap<T>(T item) {
   return [item];
+}
+
+// Generic constraints
+T sort<T : Comparable>(T[] items) {
+  return items;
 }
 ```
 
@@ -354,13 +388,24 @@ match (result) {
   Err(msg) => { print(msg); }
   _ => { print("unknown"); }
 }
+
+// ? operator — unwrap Ok or propagate Err
+int calculate() {
+  var a = divide(10, 2)?;  // unwraps to 5
+  var b = divide(a, 0)?;   // propagates Err
+  return b;
+}
 ```
 
-### Implicit Async
+### Async / Await
 
-Functions that call async operations (like `http.get`) are automatically made async. No `async`/`await` keywords needed.
+Use `await` explicitly, or let the compiler insert it automatically for `http` and `fs` calls:
 
 ```
+// Explicit await
+var data = await fetchData();
+
+// Implicit async — functions calling http/fs are auto-marked async
 string fetchData(string url) {
   var response = http.get(url);
   return response.body;
@@ -528,6 +573,7 @@ nk test tests/   # runs tests in a specific directory
 ```bash
 nk init                      # creates nk.toml
 nk install owner/repo        # clones from GitHub into nk_modules/
+nk add <package>             # npm install + auto-generate .nkd type stub
 ```
 
 Manifest format (`nk.toml`):
@@ -568,6 +614,7 @@ Namekian ships with an LSP server and a VS Code extension that provides:
 - **Hover** — hover over any expression to see its type
 - **Completions** — keywords, in-scope symbols, and member access (`.` trigger for arrays, strings, structs, etc.)
 - **Go-to-definition** — Ctrl+click on an identifier to jump to its declaration
+- **Find references** — find all usages of a variable or function across the file
 
 ### Setup
 
@@ -595,7 +642,7 @@ The playground includes a code editor, example programs, real-time diagnostics w
 npm test
 ```
 
-317 tests across lexer, parser, type checker, code generator, package manager, and LSP modules.
+362 tests across lexer, parser, type checker, code generator, package manager, LSP, and stub generator modules.
 
 ## Architecture
 
