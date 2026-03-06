@@ -16,7 +16,8 @@ export type NkType =
   | NkNullable
   | NkEnum
   | NkTuple
-  | NkTypeVar;
+  | NkTypeVar
+  | NkModule;
 
 export interface NkInt {
   tag: "int";
@@ -109,6 +110,12 @@ export interface NkTypeVar {
   name: string;
 }
 
+export interface NkModule {
+  tag: "module";
+  name: string;
+  members: Map<string, NkType>;
+}
+
 // Singleton types
 export const NK_INT: NkInt = { tag: "int" };
 export const NK_FLOAT: NkFloat = { tag: "float" };
@@ -160,6 +167,8 @@ export function typeToString(t: NkType): string {
     }
     case "typevar":
       return t.name;
+    case "module":
+      return `module "${t.name}"`;
   }
 }
 

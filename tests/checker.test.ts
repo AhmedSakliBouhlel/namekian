@@ -585,4 +585,67 @@ describe("TypeChecker", () => {
     expectNoErrors("assert(true);");
     expectNoErrors('assert(1 == 1, "should be equal");');
   });
+
+  // --- Declare module ---
+
+  it("declared module gives load proper types", () => {
+    expectNoErrors(`
+      declare module "m" {
+        int foo();
+      }
+      load "m"
+      var x = m.foo();
+    `);
+  });
+
+  it("declared module member access returns correct type", () => {
+    // m.foo() returns int, assigning to int should work
+    expectNoErrors(`
+      declare module "m" {
+        int foo();
+        string bar;
+      }
+      load "m"
+      int x = m.foo();
+      string y = m.bar;
+    `);
+  });
+
+  it("take from declared module resolves types", () => {
+    expectNoErrors(`
+      declare module "m" {
+        int add(int a, int b);
+      }
+      take { add } from "m"
+    `);
+  });
+
+  it("take from declared module errors on missing member", () => {
+    expectError(
+      `
+      declare module "m" {
+        int foo();
+      }
+      take { bar } from "m"
+      `,
+      "has no exported member 'bar'",
+    );
+  });
+
+  it("module without declaration falls through to any", () => {
+    // No declare for "unknown-pkg", should not error
+    expectNoErrors(`
+      load "unknown-pkg"
+    `);
+  });
+
+  it("declared function params are type-checked", () => {
+    expectNoErrors(`
+      declare module "m" {
+        void greet(string name);
+      }
+      load "m"
+      m.greet("hello");
+    `);
+  });
 });

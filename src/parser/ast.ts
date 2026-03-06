@@ -337,7 +337,8 @@ export type Statement =
   | ContinueStatement
   | MatchStatement
   | TypeAliasStatement
-  | DestructureDeclaration;
+  | DestructureDeclaration
+  | DeclareModuleStatement;
 
 export interface VariableDeclaration {
   kind: "VariableDeclaration";
@@ -512,6 +513,31 @@ export interface DestructureDeclaration {
 
 export interface TypeAliasStatement {
   kind: "TypeAlias";
+  name: string;
+  type: TypeAnnotation;
+  span: SourceSpan;
+}
+
+// Declaration nodes (type-only, erased in codegen)
+export type DeclareItem = DeclareFunctionSignature | DeclareVariableStatement;
+
+export interface DeclareModuleStatement {
+  kind: "DeclareModuleStatement";
+  moduleName: string;
+  declarations: DeclareItem[];
+  span: SourceSpan;
+}
+
+export interface DeclareFunctionSignature {
+  kind: "DeclareFunctionSignature";
+  name: string;
+  params: Parameter[];
+  returnType: TypeAnnotation;
+  span: SourceSpan;
+}
+
+export interface DeclareVariableStatement {
+  kind: "DeclareVariableStatement";
   name: string;
   type: TypeAnnotation;
   span: SourceSpan;

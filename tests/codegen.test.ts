@@ -415,4 +415,30 @@ describe("CodeGenerator", () => {
     const js = gen('var (a, b) = (1, "hello");');
     expect(js).toContain('const [a, b] = [1, "hello"];');
   });
+
+  // --- Declare module ---
+
+  it("declare module produces no JS output", () => {
+    const js = gen(`
+      declare module "express" {
+        void get(string path, any handler);
+        void listen(int port);
+      }
+    `);
+    expect(js).not.toContain("declare");
+    expect(js).not.toContain("express");
+    expect(js).not.toContain("module");
+    expect(js.trim()).toBe("");
+  });
+
+  it("load still compiles to import with declare module present", () => {
+    const js = gen(`
+      declare module "express" {
+        void get(string path);
+      }
+      load "express"
+    `);
+    expect(js).toContain('import express from "express"');
+    expect(js).not.toContain("declare");
+  });
 });

@@ -15,6 +15,8 @@ import {
   EnumVariant,
   InterfaceMethod,
   SourceSpan,
+  DeclareItem,
+  DeclareModuleStatement,
 } from "./ast.js";
 
 const TYPE_KEYWORDS = new Set([
@@ -322,6 +324,7 @@ export class Parser {
     if (t === TokenType.Enum) return this.parseEnumDeclaration();
     if (t === TokenType.Try) return this.parseTryCatch();
     if (t === TokenType.Match) return this.parseMatchStatement();
+    if (t === TokenType.Declare) return this.parseDeclareModule();
 
     // type Name = Type;
     if (t === TokenType.Type && this.lookAhead(1) === TokenType.Identifier) {
@@ -661,6 +664,61 @@ export class Parser {
       .replace(/[^a-zA-Z0-9_]/g, "");
     this.match(TokenType.Semicolon);
     return { kind: "LoadStatement", name, path, span };
+  }
+
+  private parseDeclareModule(): DeclareModuleStatement {
+    const span = this.span();
+    this.advance(); // declare
+    this.expect(TokenType.Module, "Expected 'module'");
+    const moduleName = this.expect(
+      TokenType.StringLiteral,
+      "Expected module name string",
+    ).value;
+    this.expect(TokenType.LeftBrace, "Expected '{'");
+    const declarations: DeclareItem[] = [];
+    while (!this.check(TokenType.RightBrace) && !this.isAtEnd()) {
+      const declSpan = this.span();
+      const type = this.parseTypeAnnotation();
+      const name = this.expect(
+        TokenType.Identifier,
+        "Expected identifier",
+      ).value;
+      if (this.check(TokenType.LeftParen)) {
+        // Function signature: returnType name(params);
+        this.advance(); // (
+        const params: Parameter[] = [];
+        while (!this.check(TokenType.RightParen) && !this.isAtEnd()) {
+          const pSpan = this.span();
+          const pType = this.parseTypeAnnotation();
+          const pName = this.expect(
+            TokenType.Identifier,
+            "Expected parameter name",
+          ).value;
+          params.push({ name: pName, type: pType, span: pSpan });
+          if (!this.match(TokenType.Comma)) break;
+        }
+        this.expect(TokenType.RightParen, "Expected ')'");
+        this.expect(TokenType.Semicolon, "Expected ';'");
+        declarations.push({
+          kind: "DeclareFunctionSignature",
+          name,
+          params,
+          returnType: type,
+          span: declSpan,
+        });
+      } else {
+        // Variable declaration: type name;
+        this.expect(TokenType.Semicolon, "Expected ';'");
+        declarations.push({
+          kind: "DeclareVariableStatement",
+          name,
+          type,
+          span: declSpan,
+        });
+      }
+    }
+    this.expect(TokenType.RightBrace, "Expected '}'");
+    return { kind: "DeclareModuleStatement", moduleName, declarations, span };
   }
 
   private parseStructDeclaration(): Statement {

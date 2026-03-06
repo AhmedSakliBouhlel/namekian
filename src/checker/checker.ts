@@ -22,6 +22,7 @@ import {
   isAssignable,
   typeToString,
   NkTypeVar,
+  NkModule,
 } from "./types.js";
 
 export class TypeChecker {
@@ -33,6 +34,7 @@ export class TypeChecker {
   private file: string;
   private currentReturnType: NkType | undefined;
   private externalTypes: Map<string, Map<string, NkType>> | undefined;
+  private moduleRegistry: Map<string, NkModule> = new Map();
 
   constructor(
     file = "<stdin>",
@@ -611,9 +613,20 @@ export class TypeChecker {
       }
 
       case "TakeStatement": {
+        const takeModule = this.moduleRegistry.get(stmt.path);
         for (const name of stmt.names) {
           let type: NkType = NK_ANY;
-          if (this.externalTypes) {
+          if (takeModule) {
+            const memberType = takeModule.members.get(name);
+            if (memberType) {
+              type = memberType;
+            } else {
+              this.error(
+                `Module '${stmt.path}' has no exported member '${name}'`,
+                stmt,
+              );
+            }
+          } else if (this.externalTypes) {
             for (const [, types] of this.externalTypes) {
               if (types.has(name)) {
                 type = types.get(name)!;
@@ -626,9 +639,40 @@ export class TypeChecker {
         break;
       }
 
-      case "LoadStatement":
-        this.env.define(stmt.name, NK_ANY);
+      case "LoadStatement": {
+        const loadModule = this.moduleRegistry.get(stmt.path);
+        if (loadModule) {
+          this.env.define(stmt.name, loadModule);
+        } else {
+          this.env.define(stmt.name, NK_ANY);
+        }
         break;
+      }
+
+      case "DeclareModuleStatement": {
+        const members = new Map<string, NkType>();
+        for (const decl of stmt.declarations) {
+          if (decl.kind === "DeclareFunctionSignature") {
+            const params = decl.params.map((p) =>
+              p.type ? this.resolveType(p.type) : NK_ANY,
+            );
+            const returnType = this.resolveType(decl.returnType);
+            members.set(decl.name, {
+              tag: "function",
+              params,
+              returnType,
+            });
+          } else {
+            members.set(decl.name, this.resolveType(decl.type));
+          }
+        }
+        this.moduleRegistry.set(stmt.moduleName, {
+          tag: "module",
+          name: stmt.moduleName,
+          members,
+        });
+        break;
+      }
 
       case "TryCatchStatement":
         this.checkStatement(stmt.tryBlock);
@@ -1046,6 +1090,11 @@ export class TypeChecker {
             case "clear":
               return { tag: "function", params: [], returnType: NK_VOID };
           }
+        }
+        // Module member access
+        if (objType.tag === "module") {
+          const memberType = objType.members.get(expr.property);
+          if (memberType) return memberType;
         }
         return NK_ANY;
       }
