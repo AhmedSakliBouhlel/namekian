@@ -758,4 +758,59 @@ describe("Parser", () => {
       expect(stmt.names).toEqual(["x", "y", "z"]);
     }
   });
+
+  // --- Declare module ---
+
+  it("parses declare module with a single function", () => {
+    const stmt = parseFirst('declare module "pkg" { int foo(); }');
+    expect(stmt.kind).toBe("DeclareModuleStatement");
+    if (stmt.kind === "DeclareModuleStatement") {
+      expect(stmt.moduleName).toBe("pkg");
+      expect(stmt.declarations.length).toBe(1);
+      expect(stmt.declarations[0].kind).toBe("DeclareFunctionSignature");
+      if (stmt.declarations[0].kind === "DeclareFunctionSignature") {
+        expect(stmt.declarations[0].name).toBe("foo");
+      }
+    }
+  });
+
+  it("parses declare module with multiple functions and variables", () => {
+    const stmt = parseFirst(`
+      declare module "express" {
+        void get(string path, any handler);
+        void listen(int port);
+        int timeout;
+      }
+    `);
+    expect(stmt.kind).toBe("DeclareModuleStatement");
+    if (stmt.kind === "DeclareModuleStatement") {
+      expect(stmt.moduleName).toBe("express");
+      expect(stmt.declarations.length).toBe(3);
+      expect(stmt.declarations[0].kind).toBe("DeclareFunctionSignature");
+      expect(stmt.declarations[1].kind).toBe("DeclareFunctionSignature");
+      expect(stmt.declarations[2].kind).toBe("DeclareVariableStatement");
+      if (stmt.declarations[2].kind === "DeclareVariableStatement") {
+        expect(stmt.declarations[2].name).toBe("timeout");
+      }
+    }
+  });
+
+  it("parses declare module with typed params", () => {
+    const stmt = parseFirst(`
+      declare module "m" {
+        any[] map(any[] arr, any fn);
+      }
+    `);
+    expect(stmt.kind).toBe("DeclareModuleStatement");
+    if (stmt.kind === "DeclareModuleStatement") {
+      const fn = stmt.declarations[0];
+      expect(fn.kind).toBe("DeclareFunctionSignature");
+      if (fn.kind === "DeclareFunctionSignature") {
+        expect(fn.name).toBe("map");
+        expect(fn.params.length).toBe(2);
+        expect(fn.params[0].name).toBe("arr");
+        expect(fn.params[1].name).toBe("fn");
+      }
+    }
+  });
 });

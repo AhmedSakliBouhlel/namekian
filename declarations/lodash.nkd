@@ -1,0 +1,10 @@
+declare module "lodash" {
+  any[] map(any[] arr, any fn);
+  any find(any[] arr, any fn);
+  any[] filter(any[] arr, any fn);
+  any reduce(any[] arr, any fn, any initial);
+  any[] uniq(any[] arr);
+  any[] flatten(any[] arr);
+  any get(any obj, string path);
+  any set(any obj, string path, any value);
+}

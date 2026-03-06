@@ -328,6 +328,22 @@ export class Formatter {
       case "ContinueStatement":
         this.emit("continue;");
         break;
+
+      case "DeclareModuleStatement":
+        this.emit(`declare module "${stmt.moduleName}" {`);
+        this.indent++;
+        for (const decl of stmt.declarations) {
+          if (decl.kind === "DeclareFunctionSignature") {
+            const ret = this.fmtType(decl.returnType);
+            const params = this.fmtParams(decl.params);
+            this.emit(`${ret} ${decl.name}(${params});`);
+          } else {
+            this.emit(`${this.fmtType(decl.type)} ${decl.name};`);
+          }
+        }
+        this.indent--;
+        this.emit("}");
+        break;
     }
   }
 
@@ -572,6 +588,7 @@ function isDeclaration(stmt: Statement): boolean {
     stmt.kind === "StructDeclaration" ||
     stmt.kind === "ClassDeclaration" ||
     stmt.kind === "InterfaceDeclaration" ||
-    stmt.kind === "EnumDeclaration"
+    stmt.kind === "EnumDeclaration" ||
+    stmt.kind === "DeclareModuleStatement"
   );
 }

@@ -51,6 +51,8 @@ export enum TokenType {
   Take = "Take",
   From = "From",
   Load = "Load",
+  Declare = "Declare",
+  Module = "Module",
 
   // Operators
   Plus = "Plus",

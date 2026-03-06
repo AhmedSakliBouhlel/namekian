@@ -1,0 +1,9 @@
+declare module "express" {
+  void get(string path, any handler);
+  void post(string path, any handler);
+  void put(string path, any handler);
+  void delete(string path, any handler);
+  void use(any middleware);
+  void listen(int port);
+  void set(string key, any value);
+}

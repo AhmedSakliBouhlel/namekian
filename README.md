@@ -29,6 +29,7 @@ print(result); // 7
 - **Range expressions** — `0..10` (exclusive) and `0..=10` (inclusive) generate arrays
 - **Implicit async** — no async/await keywords; the compiler inserts them automatically
 - **Module system** — `take { X } from "./path"` and `load "package"` with cross-file type checking
+- **Type declarations** — `declare module "pkg" { ... }` and `.nkd` files give npm packages proper types
 - **Type narrowing** — `T?` is narrowed to `T` inside `if (x != null)` blocks
 - **Linter warnings** — unreachable code after return/break/continue, unused variables, variable shadowing
 - **Destructuring** — `var { x, y } = point;`, `var [a, b] = arr;`, and `var (a, b) = tuple;`
@@ -379,6 +380,40 @@ take { User, Post } from "./models"
 load "express"
 ```
 
+### Type Declarations
+
+Declare types for npm packages so the checker knows their shape. Use inline `declare module` blocks or separate `.nkd` files:
+
+```
+// Inline declaration
+declare module "express" {
+  void get(string path, any handler);
+  void post(string path, any handler);
+  void listen(int port);
+  void use(any middleware);
+}
+
+load "express"
+var app = express();
+app.get("/hello", (any req, any res) => {
+  print("hello");
+});
+app.listen(3000);
+```
+
+Named imports also resolve against declarations:
+
+```
+declare module "lodash" {
+  any[] map(any[] arr, any fn);
+  any find(any[] arr, any fn);
+}
+
+take { map, find } from "lodash"
+```
+
+Place `.nkd` files in a `declarations/` directory for reusable type definitions across your project. Without a declaration, imported symbols default to `any`.
+
 ### Array & String Built-ins
 
 ```
@@ -560,7 +595,7 @@ The playground includes a code editor, example programs, real-time diagnostics w
 npm test
 ```
 
-306 tests across lexer, parser, type checker, code generator, package manager, and LSP modules.
+317 tests across lexer, parser, type checker, code generator, package manager, and LSP modules.
 
 ## Architecture
 
@@ -578,6 +613,7 @@ src/
 ├── browser.ts    # Browser entry point for the web playground
 └── cli.ts        # CLI argument parsing, commands, and REPL
 
+declarations/     # Type declarations for npm packages (.nkd files)
 playground/       # Web playground (try Namekian in the browser)
 namekian-vscode/  # VS Code extension (LanguageClient)
 ```

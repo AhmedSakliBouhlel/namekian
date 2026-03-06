@@ -520,6 +520,7 @@ export class CodeGenerator {
 
       case "InterfaceDeclaration":
       case "TypeAlias":
+      case "DeclareModuleStatement":
         // Type-only declarations are erased in JS output
         break;
 
