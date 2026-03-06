@@ -1,0 +1,63 @@
+// Pattern Matching — guard clauses, nested patterns, binding patterns
+
+enum Option<T> {
+  Some(T value),
+  None
+}
+
+/// Classifies a number by sign and magnitude.
+string classify(Result<int, string> result) {
+  match (result) {
+    Ok(x) if x > 100 => { return "large positive"; }
+    Ok(x) if x > 0 => { return "small positive"; }
+    Ok(x) if x == 0 => { return "zero"; }
+    Ok(x) => { return "negative"; }
+    Err(e) => { return "error: ${e}"; }
+  }
+}
+
+// Nested patterns — unwrap layered Result/Option types
+Result<Result<int, string>, string> fetchAndParse() {
+  return Ok(Ok(42));
+}
+
+var nested = fetchAndParse();
+match (nested) {
+  Ok(Ok(x)) => { print("got value: ${x}"); }
+  Ok(Err(e)) => { print("inner error: ${e}"); }
+  Err(e) => { print("outer error: ${e}"); }
+}
+
+// Binding pattern — capture entire match while destructuring
+Result<int, string> result = Ok(99);
+match (result) {
+  val @ Ok(x) if x > 50 => {
+    print("large value ${x}");
+  }
+  val @ Ok(x) => {
+    print("small value ${x}");
+  }
+  _ => { print("error"); }
+}
+
+// Enum pattern matching with guards
+enum Shape {
+  Circle(float radius),
+  Rect(float width, float height),
+  Point
+}
+
+string describeShape(Shape s) {
+  match (s) {
+    Shape.Circle(r) if r > 10.0 => { return "large circle"; }
+    Shape.Circle(r) => { return "small circle (r=${r})"; }
+    Shape.Rect(w, h) if w == h => { return "square (${w}x${h})"; }
+    Shape.Rect(w, h) => { return "rectangle (${w}x${h})"; }
+    Shape.Point => { return "point"; }
+  }
+}
+
+print(describeShape(Shape.Circle(15.0)));
+print(describeShape(Shape.Circle(3.0)));
+print(describeShape(Shape.Rect(5.0, 5.0)));
+print(describeShape(Shape.Rect(3.0, 7.0)));

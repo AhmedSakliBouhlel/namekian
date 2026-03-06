@@ -1,0 +1,49 @@
+// Concurrency — channels, spawn/join, await all/race
+
+// --- Channels ---
+var ch = chan<int>(5);
+
+// Send values into the channel
+ch.send(10);
+ch.send(20);
+ch.send(30);
+
+// Receive values
+var first = ch.recv();
+var second = ch.recv();
+print("Received: ${first}, ${second}");
+
+// --- Spawn & Join ---
+int computeSquare(int n) {
+  return n * n;
+}
+
+var task = spawn computeSquare(7);
+var result = join task;
+print("7 squared = ${result}");
+
+// --- Await All ---
+// Run multiple async operations concurrently
+string fetchUser() {
+  return "Alice";
+}
+
+string fetchRole() {
+  return "Admin";
+}
+
+var results = await all [fetchUser(), fetchRole()];
+print("User: ${results[0]}, Role: ${results[1]}");
+
+// --- Await Race ---
+// Return whichever finishes first
+string fast() {
+  return "fast response";
+}
+
+string slow() {
+  return "slow response";
+}
+
+var winner = await race [fast(), slow()];
+print("Winner: ${winner}");

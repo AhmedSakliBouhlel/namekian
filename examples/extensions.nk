@@ -1,0 +1,85 @@
+// Extensions, Operator Overloading, Defer, Getters/Setters
+
+// --- Extension Methods ---
+extend string {
+  int wordCount() {
+    return this.split(" ").length;
+  }
+
+  string reverse() {
+    return this.split("").reverse().join("");
+  }
+}
+
+var sentence = "hello world foo bar";
+print("Word count: ${sentence.wordCount()}");
+print("Reversed: ${sentence.reverse()}");
+
+// --- Operator Overloading ---
+struct Vec2 {
+  float x;
+  float y;
+
+  operator +(Vec2 other) {
+    return new Vec2(this.x + other.x, this.y + other.y);
+  }
+
+  operator -(Vec2 other) {
+    return new Vec2(this.x - other.x, this.y - other.y);
+  }
+
+  operator *(Vec2 other) {
+    return new Vec2(this.x * other.x, this.y * other.y);
+  }
+
+  string toString() {
+    return "(${this.x}, ${this.y})";
+  }
+}
+
+var a = new Vec2(1.0, 2.0);
+var b = new Vec2(3.0, 4.0);
+var c = a + b;
+print("a + b = ${c.toString()}");
+
+var d = b - a;
+print("b - a = ${d.toString()}");
+
+// --- Getters & Setters ---
+struct Circle {
+  float radius;
+
+  get float area() {
+    return 3.14159 * this.radius * this.radius;
+  }
+
+  get float circumference() {
+    return 2.0 * 3.14159 * this.radius;
+  }
+}
+
+var circle = new Circle(5.0);
+print("Area: ${circle.area}");
+print("Circumference: ${circle.circumference}");
+
+// --- Defer ---
+void processItems(string[] items) {
+  print("Starting processing...");
+  defer { print("Processing complete!"); }
+
+  for (item in items) {
+    print("  Processing: ${item}");
+  }
+}
+
+processItems(["alpha", "beta", "gamma"]);
+
+// Multiple defers run in LIFO order
+void lifoDemo() {
+  defer { print("third (runs first)"); }
+  defer { print("second"); }
+  defer { print("first (runs last)"); }
+  print("main body");
+}
+
+lifoDemo();

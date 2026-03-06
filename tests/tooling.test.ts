@@ -9,6 +9,7 @@ import { bundle } from "../src/bundler.js";
 import { generateWat } from "../src/codegen/wasm-codegen.js";
 import { getCodeActions } from "../src/lsp/code-actions.js";
 import { getReferences } from "../src/lsp/references.js";
+import { parseCoverageData } from "../src/coverage.js";
 import { Lexer } from "../src/lexer/lexer.js";
 import { Parser } from "../src/parser/parser.js";
 import { Diagnostic } from "../src/errors/diagnostic.js";
@@ -382,5 +383,228 @@ describe("Bundler", () => {
     const result = bundle("/tmp/nonexistent_nk_file_" + Date.now() + ".nk");
     expect(result.success).toBe(false);
     expect(result.diagnostics.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Extension Method Codegen (Feature 12)
+// ---------------------------------------------------------------------------
+
+describe("Extension Method Codegen", () => {
+  function gen(source: string): string {
+    const result = compile(source, "<stdin>", { noCheck: true });
+    expect(result.success).toBe(true);
+    return result.js!;
+  }
+
+  it("emits extension methods as __ext_ functions", () => {
+    const js = gen("extend string { int wordCount() { return 1; } }");
+    expect(js).toContain("function __ext_string_wordCount(__self)");
+  });
+
+  it("rewrites extension method calls", () => {
+    const js = gen(
+      'extend string { int wordCount() { return 1; } }\nvar s = "hello";\ns.wordCount();',
+    );
+    expect(js).toContain("__ext_string_wordCount(s)");
+  });
+
+  it("passes arguments through extension call", () => {
+    const js = gen(
+      'extend string { string repeat(int n) { return "a"; } }\nvar s = "hi";\ns.repeat(3);',
+    );
+    expect(js).toContain("__ext_string_repeat(s, 3)");
+  });
+
+  it("emits __self as first parameter", () => {
+    const js = gen("extend int { int double() { return 2; } }");
+    expect(js).toContain("function __ext_int_double(__self)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Operator Overloading Codegen (Feature 13)
+// ---------------------------------------------------------------------------
+
+describe("Operator Overloading Codegen", () => {
+  function gen(source: string): string {
+    const result = compile(source, "<stdin>", { noCheck: true });
+    expect(result.success).toBe(true);
+    return result.js!;
+  }
+
+  it("emits operator method in struct", () => {
+    const js = gen(`
+struct Vec2 {
+  float x;
+  float y;
+  operator +(Vec2 other) {
+    return new Vec2(x + other.x, y + other.y);
+  }
+}
+`);
+    expect(js).toContain("__op_plus(other)");
+  });
+
+  it("rewrites binary expression for known struct variables", () => {
+    const js = gen(`
+struct Vec2 {
+  float x;
+  float y;
+  operator +(Vec2 other) {
+    return new Vec2(x + other.x, y + other.y);
+  }
+}
+Vec2 v1 = new Vec2(1.0, 2.0);
+Vec2 v2 = new Vec2(3.0, 4.0);
+var v3 = v1 + v2;
+`);
+    expect(js).toContain("v1.__op_plus(v2)");
+  });
+
+  it("does not rewrite binary on non-struct variables", () => {
+    const js = gen(`
+int a = 1;
+int b = 2;
+var c = a + b;
+`);
+    expect(js).toContain("(a + b)");
+    expect(js).not.toContain("__op_plus");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Coverage Module (Feature 26)
+// ---------------------------------------------------------------------------
+
+describe("Coverage Module", () => {
+  it("parseCoverageData returns null for missing dir", () => {
+    const result = parseCoverageData(
+      "/tmp/nonexistent_dir_" + Date.now(),
+      "test.nk",
+    );
+    expect(result).toBeNull();
+  });
+
+  it("parseCoverageData returns null for empty dir", () => {
+    const { mkdirSync, rmdirSync } = require("fs");
+    const dir = "/tmp/nk_cov_empty_" + Date.now();
+    mkdirSync(dir, { recursive: true });
+    const result = parseCoverageData(dir, "test.nk");
+    expect(result).toBeNull();
+    try {
+      rmdirSync(dir);
+    } catch {}
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WASM CLI flag (Feature 28)
+// ---------------------------------------------------------------------------
+
+describe("WASM CLI integration", () => {
+  it("generateWat handles division", () => {
+    const source = "int div(int a, int b) { return a / b; }";
+    const lexer = new Lexer(source, "test.nk");
+    const tokens = lexer.tokenize();
+    const parser = new Parser(tokens, "test.nk");
+    const ast = parser.parse();
+    const result = generateWat(ast);
+    expect(result.success).toBe(true);
+    expect(result.wat).toContain("i32.div_s");
+  });
+
+  it("generateWat handles modulo", () => {
+    const source = "int mod(int a, int b) { return a % b; }";
+    const lexer = new Lexer(source, "test.nk");
+    const tokens = lexer.tokenize();
+    const parser = new Parser(tokens, "test.nk");
+    const ast = parser.parse();
+    const result = generateWat(ast);
+    expect(result.success).toBe(true);
+    expect(result.wat).toContain("i32.rem_s");
+  });
+
+  it("generateWat errors on string operations", () => {
+    const source = "string concat(string a, string b) { return a + b; }";
+    const lexer = new Lexer(source, "test.nk");
+    const tokens = lexer.tokenize();
+    const parser = new Parser(tokens, "test.nk");
+    const ast = parser.parse();
+    const result = generateWat(ast);
+    expect(result.success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Doc comment hover (Feature 22)
+// ---------------------------------------------------------------------------
+
+describe("Doc comment hover integration", () => {
+  it("multi-line doc comments are joined", () => {
+    const source =
+      "/// Line one\n/// Line two\nint add(int a, int b) { return a + b; }";
+    const result = compile(source, "test.nk");
+    expect(result.success).toBe(true);
+    const fn = result.ast!.body[0];
+    if (fn.kind === "FunctionDeclaration") {
+      expect(fn.docComment).toContain("Line one");
+      expect(fn.docComment).toContain("Line two");
+    }
+  });
+
+  it("enum doc comments are preserved", () => {
+    const source = "/// My colors\nenum Color { Red, Green, Blue }";
+    const result = compile(source, "test.nk");
+    expect(result.success).toBe(true);
+    const en = result.ast!.body[0];
+    if (en.kind === "EnumDeclaration") {
+      expect(en.docComment).toBe("My colors");
+    }
+  });
+
+  it("class doc comments are preserved", () => {
+    const source = "/// A timer\nclass Timer { int elapsed; }";
+    const result = compile(source, "test.nk");
+    expect(result.success).toBe(true);
+    const cls = result.ast!.body[0];
+    if (cls.kind === "ClassDeclaration") {
+      expect(cls.docComment).toBe("A timer");
+    }
+  });
+
+  it("method doc comments inside struct", () => {
+    const source = "struct Foo {\n/// A method\nint bar() { return 1; }\n}";
+    const entries = extractDocs(source, "test.nk");
+    expect(entries[0].methods![0].doc).toBe("A method");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HTML doc generation edge cases
+// ---------------------------------------------------------------------------
+
+describe("HTML Doc Generator edge cases", () => {
+  it("escapes HTML entities", () => {
+    const entries = extractDocs(
+      "/// Uses <T> generics\nstring id(string x) { return x; }",
+      "test.nk",
+    );
+    const html = generateHtml(entries, "Test");
+    expect(html).toContain("&lt;T&gt;");
+    expect(html).not.toContain("<T>");
+  });
+
+  it("handles empty file", () => {
+    const entries = extractDocs("", "test.nk");
+    expect(entries).toHaveLength(0);
+  });
+
+  it("generates valid HTML structure", () => {
+    const entries = extractDocs("void noop() { }", "test.nk");
+    const html = generateHtml(entries, "API");
+    expect(html).toContain("<!DOCTYPE html>");
+    expect(html).toContain("</html>");
+    expect(html).toContain("<h1>");
   });
 });
