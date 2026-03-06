@@ -40,6 +40,12 @@ function parseArgs(args: string[]): CliOptions | null {
   if (args[0] === "test") {
     return { command: "test", file: args[1] || "." };
   }
+  if (args[0] === "doc") {
+    return { command: "doc", file: args[1] || "." };
+  }
+  if (args[0] === "bundle" && args.length >= 2) {
+    return { command: "bundle", file: args[1] };
+  }
   if (args[0] === "install" && args.length >= 2) {
     return { command: "install", file: args[1] };
   }
@@ -109,6 +115,8 @@ Commands:
   tokens <file>   Print token stream
   ast <file>      Print AST as JSON
   test [dir]      Run *.test.nk files
+  doc [dir]       Generate HTML documentation
+  bundle <file>   Bundle all files into a single JS file
   init            Create nk.toml in current directory
   install <repo>  Install dependency (owner/repo)
   add <pkg>       Install npm package and generate type stub
@@ -202,6 +210,45 @@ export async function cli(args: string[]): Promise<void> {
 
   if (opts.command === "test") {
     await runTests(opts.file);
+    return;
+  }
+
+  if (opts.command === "doc") {
+    const { extractDocs, generateHtml } = await import("./doc-generator.js");
+    const docDir = resolve(opts.file);
+    const nkFiles = findNkFiles(docDir);
+    if (nkFiles.length === 0) {
+      console.log("No .nk files found");
+      return;
+    }
+    const allEntries: Awaited<ReturnType<typeof extractDocs>> = [];
+    for (const file of nkFiles) {
+      const source = readFileSync(file, "utf-8");
+      allEntries.push(...extractDocs(source, file));
+    }
+    const html = generateHtml(allEntries, basename(docDir));
+    const outFile = resolve(docDir, "docs.html");
+    writeFileSync(outFile, html);
+    console.log(`${GREEN}Generated: ${outFile}${RESET}`);
+    return;
+  }
+
+  if (opts.command === "bundle") {
+    const { bundle: doBundle } = await import("./bundler.js");
+    const result = doBundle(resolve(opts.file));
+    if (result.diagnostics.length > 0) {
+      const source = readFileSync(resolve(opts.file), "utf-8");
+      reportDiagnostics(result.diagnostics, source);
+    }
+    if (!result.success || !result.js) {
+      process.exit(1);
+    }
+    const outFile = resolve(
+      dirname(opts.file),
+      basename(opts.file).replace(/\.nk$/, ".bundle.js"),
+    );
+    writeFileSync(outFile, result.js);
+    console.log(`${GREEN}Bundled: ${outFile}${RESET}`);
     return;
   }
 
@@ -435,6 +482,26 @@ async function runTests(dir: string): Promise<void> {
 
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
+}
+
+function findNkFiles(dir: string): string[] {
+  const { readdirSync, statSync } = require("fs") as typeof import("fs");
+  const results: string[] = [];
+  try {
+    for (const entry of readdirSync(dir)) {
+      if (entry === "nk_modules" || entry === "node_modules") continue;
+      const full = join(dir, entry);
+      try {
+        const stat = statSync(full);
+        if (stat.isDirectory()) {
+          results.push(...findNkFiles(full));
+        } else if (entry.endsWith(".nk") && !entry.endsWith(".test.nk")) {
+          results.push(full);
+        }
+      } catch {}
+    }
+  } catch {}
+  return results;
 }
 
 function findTestFiles(dir: string): string[] {

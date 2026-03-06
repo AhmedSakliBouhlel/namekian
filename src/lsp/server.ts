@@ -10,6 +10,9 @@ import {
   MarkupKind,
   Location,
   DiagnosticSeverity,
+  TextEdit,
+  Range,
+  WorkspaceEdit,
 } from "vscode-languageserver/node.js";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { compile } from "../compiler.js";
@@ -18,10 +21,12 @@ import { findNodeAtOffset } from "./hover.js";
 import { getCompletions, LspCompletionItem } from "./completions.js";
 import { getDefinition } from "./definition.js";
 import { getReferences } from "./references.js";
+import { getCodeActions } from "./code-actions.js";
 import { positionToOffset } from "./span-utils.js";
 import { typeToString } from "../checker/types.js";
 import { Program } from "../parser/ast.js";
 import { TypeChecker } from "../checker/checker.js";
+import { Diagnostic as NkDiagnostic } from "../errors/diagnostic.js";
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
@@ -33,6 +38,7 @@ const docCache = new Map<
     ast?: Program;
     checker?: TypeChecker;
     source: string;
+    nkDiagnostics?: NkDiagnostic[];
   }
 >();
 
@@ -46,6 +52,8 @@ connection.onInitialize((): InitializeResult => {
       hoverProvider: true,
       definitionProvider: true,
       referencesProvider: true,
+      renameProvider: true,
+      codeActionProvider: true,
     },
   };
 });
@@ -76,6 +84,7 @@ function validateDocument(document: TextDocument): void {
     ast: result.ast,
     checker: result.checker,
     source,
+    nkDiagnostics: result.diagnostics,
   });
 
   const lspDiags = convertDiagnostics(result.diagnostics);
@@ -191,6 +200,75 @@ connection.onReferences((params): Location[] => {
       start: { line: ref.line - 1, character: ref.column - 1 },
       end: { line: ref.line - 1, character: ref.column - 1 },
     },
+  }));
+});
+
+connection.onRenameRequest((params) => {
+  const cached = docCache.get(params.textDocument.uri);
+  if (!cached?.ast) return null;
+
+  const offset = positionToOffset(
+    cached.source,
+    params.position.line,
+    params.position.character,
+  );
+
+  const refs = getReferences(
+    cached.ast,
+    cached.source,
+    offset,
+    params.textDocument.uri,
+  );
+
+  if (refs.length === 0) return null;
+
+  const changes: Record<string, TextEdit[]> = {};
+  for (const ref of refs) {
+    const uri = ref.uri;
+    if (!changes[uri]) changes[uri] = [];
+    // Find the old name length from the source
+    const node = findNodeAtOffset(cached.ast!, ref.offset);
+    const oldLen =
+      node && node.kind === "Identifier"
+        ? node.name.length
+        : params.newName.length;
+    changes[uri].push({
+      range: {
+        start: { line: ref.line - 1, character: ref.column - 1 },
+        end: { line: ref.line - 1, character: ref.column - 1 + oldLen },
+      },
+      newText: params.newName,
+    });
+  }
+
+  return { changes } as WorkspaceEdit;
+});
+
+connection.onCodeAction((params) => {
+  const cached = docCache.get(params.textDocument.uri);
+  if (!cached?.nkDiagnostics) return [];
+
+  const startOffset = positionToOffset(
+    cached.source,
+    params.range.start.line,
+    params.range.start.character,
+  );
+  const endOffset = positionToOffset(
+    cached.source,
+    params.range.end.line,
+    params.range.end.character,
+  );
+
+  const actions = getCodeActions(
+    cached.nkDiagnostics,
+    cached.source,
+    startOffset,
+    endOffset,
+  );
+
+  return actions.map((action) => ({
+    title: action.title,
+    kind: action.kind,
   }));
 });
 

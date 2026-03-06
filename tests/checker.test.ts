@@ -754,4 +754,170 @@ describe("TypeChecker", () => {
       }
     `);
   });
+
+  // --- Never type ---
+
+  it("never type is assignable to int (bottom type)", () => {
+    expectNoErrors(`
+      never throwErr(string msg) {
+        return;
+      }
+    `);
+  });
+
+  it("int not assignable to never", () => {
+    expectError("never x = 5;", "not assignable");
+  });
+
+  // --- Literal types ---
+
+  it("literal type assignable to base type", () => {
+    expectNoErrors(`
+      type Dir = "north" | "south";
+      string s = "north";
+    `);
+  });
+
+  it("literal types in union type alias", () => {
+    expectNoErrors(`
+      type Dir = "north" | "south";
+    `);
+  });
+
+  // --- Intersection types ---
+
+  it("intersection type resolves", () => {
+    expectNoErrors(`
+      interface Printable {
+        void display();
+      }
+      interface Serializable {
+        string serialize();
+      }
+    `);
+  });
+
+  // --- Guard clauses in match ---
+
+  it("match guard must be boolean", () => {
+    expectNoErrors(`
+      Result<int, string> r = Ok(42);
+      match (r) {
+        Ok(v) if v > 0 => { print(v); }
+        _ => { print("other"); }
+      }
+    `);
+  });
+
+  // --- Nested patterns in match ---
+
+  it("nested match patterns bind variables", () => {
+    expectNoErrors(`
+      Result<int, string> r = Ok(42);
+      match (r) {
+        Ok(x) => { print(x); }
+        Err(e) => { print(e); }
+      }
+    `);
+  });
+
+  // --- Binding pattern ---
+
+  it("binding pattern defines variable", () => {
+    expectNoErrors(`
+      Result<int, string> r = Ok(42);
+      match (r) {
+        val @ Ok(x) => { print(val); print(x); }
+        _ => {}
+      }
+    `);
+  });
+
+  // --- Defer ---
+
+  it("defer statement checks body", () => {
+    expectNoErrors(`
+      defer {
+        print("cleanup");
+      }
+    `);
+  });
+
+  // --- Extension methods ---
+
+  it("extension method body is checked", () => {
+    expectNoErrors(`
+      extend string {
+        int wordCount() {
+          return 1;
+        }
+      }
+    `);
+  });
+
+  // --- Named arguments ---
+
+  it("named arguments pass through to check", () => {
+    expectNoErrors(`
+      int add(int a, int b) { return a + b; }
+      var r = add(a: 1, b: 2);
+    `);
+  });
+
+  // --- Spawn expression ---
+
+  it("spawn expression type-checks inner", () => {
+    expectNoErrors(`
+      int compute() { return 42; }
+      var t = spawn compute();
+    `);
+  });
+
+  // --- await all / await race ---
+
+  it("await all returns array type", () => {
+    expectNoErrors(`
+      var results = await all [1, 2, 3];
+    `);
+  });
+
+  // --- Chan ---
+
+  it("chan expression creates channel type", () => {
+    expectNoErrors(`
+      var ch = chan<int>(10);
+    `);
+  });
+
+  // --- Utility types ---
+
+  it("Partial makes struct fields nullable", () => {
+    expectNoErrors(`
+      struct Point {
+        int x;
+        int y;
+      }
+      Partial<Point> p = new Point(1, 2);
+    `);
+  });
+
+  // --- Stdlib modules ---
+
+  it("regex module is defined", () => {
+    expectNoErrors(`
+      var result = regex.test("abc", "abc");
+    `);
+  });
+
+  it("time module is defined", () => {
+    expectNoErrors(`
+      var now = time.now();
+    `);
+  });
+
+  it("env module is defined", () => {
+    expectNoErrors(`
+      var home = env.get("HOME");
+    `);
+  });
 });

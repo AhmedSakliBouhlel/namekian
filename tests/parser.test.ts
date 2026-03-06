@@ -630,11 +630,14 @@ describe("Parser", () => {
       if (stmt.arms[0].pattern.kind === "EnumVariantPattern") {
         expect(stmt.arms[0].pattern.enumName).toBe("Shape");
         expect(stmt.arms[0].pattern.variant).toBe("Circle");
-        expect(stmt.arms[0].pattern.bindings).toEqual(["r"]);
+        expect(stmt.arms[0].pattern.bindings.length).toBe(1);
+        const b0 = stmt.arms[0].pattern.bindings[0];
+        expect(b0.kind).toBe("IdentifierPattern");
+        if (b0.kind === "IdentifierPattern") expect(b0.name).toBe("r");
       }
       expect(stmt.arms[1].pattern.kind).toBe("EnumVariantPattern");
       if (stmt.arms[1].pattern.kind === "EnumVariantPattern") {
-        expect(stmt.arms[1].pattern.bindings).toEqual([]);
+        expect(stmt.arms[1].pattern.bindings.length).toBe(0);
       }
     }
   });
@@ -944,6 +947,247 @@ describe("Parser", () => {
         expect(fn.params[0].name).toBe("arr");
         expect(fn.params[1].name).toBe("fn");
       }
+    }
+  });
+
+  // --- Never type ---
+
+  it("parses never type annotation", () => {
+    const stmt = parseFirst("never throwError(string msg) { return; }");
+    expect(stmt.kind).toBe("FunctionDeclaration");
+    if (stmt.kind === "FunctionDeclaration") {
+      expect(stmt.returnType?.kind).toBe("NamedType");
+      if (stmt.returnType?.kind === "NamedType") {
+        expect(stmt.returnType.name).toBe("never");
+      }
+    }
+  });
+
+  // --- Literal types ---
+
+  it("parses literal type annotations", () => {
+    const stmt = parseFirst('type Dir = "north" | "south";');
+    expect(stmt.kind).toBe("TypeAlias");
+    if (stmt.kind === "TypeAlias") {
+      expect(stmt.type.kind).toBe("UnionType");
+      if (stmt.type.kind === "UnionType") {
+        expect(stmt.type.types[0].kind).toBe("LiteralType");
+        expect(stmt.type.types[1].kind).toBe("LiteralType");
+      }
+    }
+  });
+
+  // --- Intersection types ---
+
+  it("parses intersection type in type alias", () => {
+    const stmt = parseFirst("type Both = Printable & Serializable;");
+    expect(stmt.kind).toBe("TypeAlias");
+    if (stmt.kind === "TypeAlias") {
+      expect(stmt.type.kind).toBe("IntersectionType");
+      if (stmt.type.kind === "IntersectionType") {
+        expect(stmt.type.types.length).toBe(2);
+      }
+    }
+  });
+
+  // --- Guard clauses ---
+
+  it("parses match arm with guard clause", () => {
+    const stmt = parseFirst(`
+      match (x) {
+        Ok(v) if v > 0 => { print(v); }
+        _ => { print("other"); }
+      }
+    `);
+    expect(stmt.kind).toBe("MatchStatement");
+    if (stmt.kind === "MatchStatement") {
+      expect(stmt.arms[0].guard).toBeDefined();
+      expect(stmt.arms[0].guard?.kind).toBe("BinaryExpr");
+      expect(stmt.arms[1].guard).toBeUndefined();
+    }
+  });
+
+  // --- Nested patterns ---
+
+  it("parses nested Ok(Ok(x)) pattern", () => {
+    const stmt = parseFirst(`
+      match (r) {
+        Ok(Ok(x)) => { print(x); }
+        _ => {}
+      }
+    `);
+    expect(stmt.kind).toBe("MatchStatement");
+    if (stmt.kind === "MatchStatement") {
+      const p = stmt.arms[0].pattern;
+      expect(p.kind).toBe("OkPattern");
+      if (p.kind === "OkPattern") {
+        expect(p.inner.kind).toBe("OkPattern");
+      }
+    }
+  });
+
+  // --- Binding pattern ---
+
+  it("parses binding pattern val @ Ok(x)", () => {
+    const stmt = parseFirst(`
+      match (r) {
+        val @ Ok(x) => { print(val); }
+        _ => {}
+      }
+    `);
+    expect(stmt.kind).toBe("MatchStatement");
+    if (stmt.kind === "MatchStatement") {
+      const p = stmt.arms[0].pattern;
+      expect(p.kind).toBe("BindingPattern");
+      if (p.kind === "BindingPattern") {
+        expect(p.name).toBe("val");
+        expect(p.pattern.kind).toBe("OkPattern");
+      }
+    }
+  });
+
+  // --- Tuple pattern ---
+
+  it("parses tuple pattern in match", () => {
+    const stmt = parseFirst(`
+      match (pair) {
+        (a, b) => { print(a); }
+      }
+    `);
+    expect(stmt.kind).toBe("MatchStatement");
+    if (stmt.kind === "MatchStatement") {
+      const p = stmt.arms[0].pattern;
+      expect(p.kind).toBe("TuplePattern");
+      if (p.kind === "TuplePattern") {
+        expect(p.elements.length).toBe(2);
+      }
+    }
+  });
+
+  // --- Named arguments ---
+
+  it("parses named arguments in call", () => {
+    const stmt = parseFirst("var r = foo(a: 1, b: 2);");
+    expect(stmt.kind).toBe("VariableDeclaration");
+    if (stmt.kind === "VariableDeclaration") {
+      expect(stmt.initializer.kind).toBe("CallExpr");
+      if (stmt.initializer.kind === "CallExpr") {
+        expect(stmt.initializer.args[0].kind).toBe("NamedArgExpr");
+      }
+    }
+  });
+
+  // --- Defer ---
+
+  it("parses defer statement", () => {
+    const stmt = parseFirst("defer { cleanup(); }");
+    expect(stmt.kind).toBe("DeferStatement");
+    if (stmt.kind === "DeferStatement") {
+      expect(stmt.body.kind).toBe("BlockStatement");
+    }
+  });
+
+  // --- Extension ---
+
+  it("parses extend declaration", () => {
+    const stmt = parseFirst(`
+      extend string {
+        int wordCount() {
+          return 1;
+        }
+      }
+    `);
+    expect(stmt.kind).toBe("ExtensionDeclaration");
+    if (stmt.kind === "ExtensionDeclaration") {
+      expect(stmt.methods.length).toBe(1);
+      expect(stmt.methods[0].name).toBe("wordCount");
+    }
+  });
+
+  // --- Spawn ---
+
+  it("parses spawn expression", () => {
+    const stmt = parseFirst("var t = spawn compute();");
+    expect(stmt.kind).toBe("VariableDeclaration");
+    if (stmt.kind === "VariableDeclaration") {
+      expect(stmt.initializer.kind).toBe("SpawnExpr");
+    }
+  });
+
+  // --- await all / await race ---
+
+  it("parses await all expression", () => {
+    const stmt = parseFirst("var results = await all [a(), b()];");
+    expect(stmt.kind).toBe("VariableDeclaration");
+    if (stmt.kind === "VariableDeclaration") {
+      expect(stmt.initializer.kind).toBe("AwaitAllExpr");
+      if (stmt.initializer.kind === "AwaitAllExpr") {
+        expect(stmt.initializer.expressions.length).toBe(2);
+      }
+    }
+  });
+
+  it("parses await race expression", () => {
+    const stmt = parseFirst("var first = await race [a(), b()];");
+    expect(stmt.kind).toBe("VariableDeclaration");
+    if (stmt.kind === "VariableDeclaration") {
+      expect(stmt.initializer.kind).toBe("AwaitRaceExpr");
+    }
+  });
+
+  // --- Chan ---
+
+  it("parses chan expression", () => {
+    const stmt = parseFirst("var ch = chan<int>(10);");
+    expect(stmt.kind).toBe("VariableDeclaration");
+    if (stmt.kind === "VariableDeclaration") {
+      expect(stmt.initializer.kind).toBe("ChanExpr");
+    }
+  });
+
+  // --- Get/Set accessors ---
+
+  it("parses getter in struct", () => {
+    const stmt = parseFirst(`
+      struct Circle {
+        float radius;
+        get float area() {
+          return 3.14;
+        }
+      }
+    `);
+    expect(stmt.kind).toBe("StructDeclaration");
+    if (stmt.kind === "StructDeclaration") {
+      expect(stmt.methods.length).toBe(1);
+      expect(stmt.methods[0].accessor).toBe("get");
+      expect(stmt.methods[0].name).toBe("area");
+    }
+  });
+
+  // --- Doc comments ---
+
+  it("parses doc comments on function", () => {
+    const stmt = parseFirst(`
+      /// Adds two numbers
+      int add(int a, int b) {
+        return a + b;
+      }
+    `);
+    expect(stmt.kind).toBe("FunctionDeclaration");
+    if (stmt.kind === "FunctionDeclaration") {
+      expect(stmt.docComment).toBe("Adds two numbers");
+    }
+  });
+
+  // --- Inferred return type ---
+
+  it("parses function with inferred return type", () => {
+    const stmt = parseFirst("add(int a, int b) { return a + b; }");
+    expect(stmt.kind).toBe("FunctionDeclaration");
+    if (stmt.kind === "FunctionDeclaration") {
+      expect(stmt.name).toBe("add");
+      expect(stmt.returnType).toBeUndefined();
+      expect(stmt.params.length).toBe(2);
     }
   });
 });

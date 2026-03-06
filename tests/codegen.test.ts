@@ -505,4 +505,178 @@ describe("CodeGenerator", () => {
     const js = gen("T sort<T : Comparable>(T value) { return value; }");
     expect(js).toContain("function sort(value)");
   });
+
+  // --- Guard clauses in match ---
+
+  it("generates match arm with guard clause", () => {
+    const js = gen(`
+      var r = Ok(42);
+      match (r) {
+        Ok(v) if v > 0 => { print(v); }
+        _ => { print("other"); }
+      }
+    `);
+    expect(js).toContain("> 0");
+    expect(js).toContain("console.log");
+  });
+
+  // --- Nested patterns ---
+
+  it("generates nested Ok pattern check", () => {
+    const js = gen(`
+      var r = Ok(Ok(1));
+      match (r) {
+        Ok(Ok(x)) => { print(x); }
+        _ => { print("no"); }
+      }
+    `);
+    expect(js).toContain("__tag");
+  });
+
+  // --- Binding pattern ---
+
+  it("generates binding pattern with @", () => {
+    const js = gen(`
+      var r = Ok(42);
+      match (r) {
+        val @ Ok(x) => { print(val); }
+        _ => {}
+      }
+    `);
+    expect(js).toContain("val");
+  });
+
+  // --- Defer ---
+
+  it("generates defer as try/finally", () => {
+    const js = gen(`
+      defer {
+        print("cleanup");
+      }
+      print("work");
+    `);
+    expect(js).toContain("finally");
+    expect(js).toContain("cleanup");
+  });
+
+  // --- Extension methods ---
+
+  it("generates extension methods as standalone functions", () => {
+    const js = gen(`
+      extend string {
+        int wordCount() {
+          return 1;
+        }
+      }
+    `);
+    expect(js).toContain("__ext_string_wordCount");
+  });
+
+  // --- Named arguments ---
+
+  it("generates named arguments stripping names", () => {
+    const js = gen("var r = foo(a: 1, b: 2);");
+    expect(js).toContain("foo(1, 2)");
+  });
+
+  // --- Spawn ---
+
+  it("generates spawn as async IIFE", () => {
+    const js = gen("var t = spawn compute();");
+    expect(js).toContain("async");
+    expect(js).toContain("compute()");
+  });
+
+  // --- await all / await race ---
+
+  it("generates await all as Promise.all", () => {
+    const js = gen("var r = await all [a(), b()];");
+    expect(js).toContain("Promise.all");
+  });
+
+  it("generates await race as Promise.race", () => {
+    const js = gen("var r = await race [a(), b()];");
+    expect(js).toContain("Promise.race");
+  });
+
+  // --- Chan ---
+
+  it("generates chan as __nk_chan", () => {
+    const js = gen("var ch = chan<int>(10);");
+    expect(js).toContain("__nk_chan(10)");
+    expect(js).toContain("__NkChannel");
+  });
+
+  // --- Get/Set accessors ---
+
+  it("generates getter accessor in struct", () => {
+    const js = gen(`
+      struct Circle {
+        float radius;
+        get float area() {
+          return 3.14;
+        }
+      }
+    `);
+    expect(js).toContain("get area()");
+  });
+
+  it("generates setter accessor in struct", () => {
+    const js = gen(`
+      struct Circle {
+        float _radius;
+        set radius(float r) {
+          this._radius = r;
+        }
+      }
+    `);
+    expect(js).toContain("set radius(r)");
+  });
+
+  // --- Stdlib runtimes ---
+
+  it("regex module emits runtime", () => {
+    const js = gen('var r = regex.test("[0-9]+", "123");');
+    expect(js).toContain("__nk_regex");
+  });
+
+  it("time module emits runtime", () => {
+    const js = gen("var now = time.now();");
+    expect(js).toContain("__nk_time");
+  });
+
+  it("env module emits runtime", () => {
+    const js = gen('var home = env.get("HOME");');
+    expect(js).toContain("__nk_env");
+  });
+
+  it("path module emits runtime", () => {
+    const js = gen('var p = path.join("a", "b");');
+    expect(js).toContain("__nk_path");
+  });
+
+  it("crypto module emits runtime", () => {
+    const js = gen("var id = crypto.uuid();");
+    expect(js).toContain("__nk_crypto");
+  });
+
+  // --- Inferred return type ---
+
+  it("generates function with inferred return type", () => {
+    const js = gen("add(int a, int b) { return a + b; }");
+    expect(js).toContain("function add(a, b)");
+  });
+
+  // --- Doc comments are erased in codegen ---
+
+  it("doc comments do not appear in JS output", () => {
+    const js = gen(`
+      /// Adds two numbers
+      int add(int a, int b) {
+        return a + b;
+      }
+    `);
+    expect(js).not.toContain("///");
+    expect(js).toContain("function add(a, b)");
+  });
 });

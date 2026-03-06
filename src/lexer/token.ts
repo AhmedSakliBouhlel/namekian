@@ -105,6 +105,26 @@ export enum TokenType {
   StringInterpMiddle = "StringInterpMiddle", // } ... ${
   StringInterpEnd = "StringInterpEnd", // } ... "
 
+  // Additional keywords
+  Never = "Never",
+  Defer = "Defer",
+  Extend = "Extend",
+  Operator = "Operator",
+  Get = "Get",
+  Set = "Set",
+  Spawn = "Spawn",
+  Join = "Join",
+  Chan = "Chan",
+  All = "All",
+  Race = "Race",
+
+  // Additional operators
+  Ampersand = "Ampersand",
+  At = "At",
+
+  // Doc comment
+  DocComment = "DocComment",
+
   // Special
   EOF = "EOF",
 }
