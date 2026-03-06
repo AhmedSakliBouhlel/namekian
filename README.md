@@ -19,7 +19,7 @@ print(result); // 7
 - **Multi-line strings** — triple-quote `"""..."""` with automatic indent stripping
 - **Generics** — `T identity<T>(T value)`, `struct Box<T> { T value; }` with type inference (`identity(5)` infers `T = int`)
 - **Structs & Classes** with auto-generated constructors and inheritance
-- **Interfaces & Enums** — interfaces are erased at compile time; enums support associated data (ADTs)
+- **Interfaces & Enums** — interfaces are enforced at compile time (missing methods/fields are errors) and erased in JS output; enums support associated data (ADTs)
 - **Result types** — `Result<T, E>` with `Ok(v)` / `Err(e)` and `match` pattern matching
 - **Match exhaustiveness** — warnings when `match` doesn't cover all enum variants or Result patterns
 - **Null coalescing** — `name ?? "default"` with nullable type unwrapping
@@ -29,7 +29,9 @@ print(result); // 7
 - **Range expressions** — `0..10` (exclusive) and `0..=10` (inclusive) generate arrays
 - **Implicit async** — no async/await keywords; the compiler inserts them automatically
 - **Module system** — `take { X } from "./path"` and `load "package"` with cross-file type checking
-- **Destructuring** — `var { x, y } = point;` and `var [a, b] = arr;`
+- **Type narrowing** — `T?` is narrowed to `T` inside `if (x != null)` blocks
+- **Linter warnings** — unreachable code after return/break/continue, unused variables, variable shadowing
+- **Destructuring** — `var { x, y } = point;`, `var [a, b] = arr;`, and `var (a, b) = tuple;`
 - **Spread operator** — `[1, ...rest]` and `print(...args)`
 - **For..in loops** — `for (item in list)` iterates over arrays
 - **Compound assignments** — `+=`, `-=`, `*=`, `/=`, `%=`
@@ -39,13 +41,15 @@ print(result); // 7
 - **Type aliases** — `type ID = int;`
 - **Map/dictionary type** — `map<K, V>` with literal syntax `{ "key": value }` and built-in methods
 - **Array/string built-ins** — `.length`, `.push()`, `.map()`, `.includes()`, `.split()`, etc.
-- **Built-in stdlib** — `print`, `json`, `http`, `math`
-- **Nullable types** — `string? name = null;`
+- **Built-in stdlib** — `print`, `assert`, `json`, `http`, `math`, `fs`, `stream`
+- **Nullable types** — `string? name = null;` with type narrowing in null checks
 - **Smart error messages** — "did you mean?" suggestions, type mismatch hints, function signature help
 - **Source maps** — `nk build file.nk --source-map` generates `.js.map` for debugging
 - **Code formatter** — `nk fmt file.nk` canonicalizes formatting
-- **Watch mode** — `nk build file.nk --watch`
-- **Interactive REPL** — `nk` with no args starts a live session
+- **Watch mode** — `nk build file.nk --watch` with `--run` for live reload
+- **Interactive REPL** — `nk` with no args starts a live session with tab completion, type display, and colored output
+- **Test runner** — `nk test` runs `*.test.nk` files with built-in `assert()`
+- **Package manager** — `nk init` creates `nk.toml`, `nk install owner/repo` fetches dependencies
 - **Web playground** — try Namekian in the browser with syntax highlighting
 
 ## Install
@@ -62,16 +66,21 @@ npm link  # makes `nk` available globally
 ```bash
 nk build file.nk          # compile to JavaScript
 nk build file.nk --watch  # compile and watch for changes
+nk build file.nk -w --run # watch + re-run on each successful build
 nk run file.nk            # compile and execute
 nk check file.nk          # type-check only
 nk fmt file.nk            # format source code
+nk test                   # run *.test.nk files with assert()
+nk test tests/            # run tests in a specific directory
+nk init                   # create nk.toml in current directory
+nk install owner/repo     # install dependency from GitHub
 nk tokens file.nk         # print token stream
 nk ast file.nk            # print AST as JSON
 nk                        # start interactive REPL
 nk repl                   # start interactive REPL
 ```
 
-Options: `-o <dir>`, `--no-check`, `--ast`, `--tokens`, `--watch`/`-w`, `--source-map`
+Options: `-o <dir>`, `--no-check`, `--ast`, `--tokens`, `--watch`/`-w`, `--run`, `--source-map`
 
 During development, use `npx tsx src/index.ts` instead of `nk`:
 
@@ -95,7 +104,7 @@ nk> .exit
 Bye!
 ```
 
-Commands: `.help`, `.exit`, `.clear`
+Commands: `.help`, `.exit`, `.clear`. Tab completion for keywords and in-scope names. Expression types are shown inline after evaluation.
 
 ## Language Guide
 
@@ -227,6 +236,9 @@ var { x, y } = p;
 
 // Array destructuring
 var [first, second] = [1, 2];
+
+// Tuple destructuring
+var (a, b) = (1, "hello");
 ```
 
 ### Type Aliases
@@ -313,9 +325,16 @@ match (c) {
 interface Printable {
   string toString();
 }
+
+// Classes must implement all interface methods and fields
+class Foo : Printable {
+  string toString() {
+    return "foo";
+  }
+}
 ```
 
-Interfaces are type-checked at compile time and erased in the JS output.
+Interfaces are enforced at compile time (missing methods/fields produce errors) and erased in the JS output.
 
 ### Result Types & Pattern Matching
 
@@ -400,6 +419,7 @@ scores.clear();
 | Function | Maps to |
 |----------|---------|
 | `print(x)` | `console.log(x)` |
+| `assert(cond)`, `assert(cond, msg)` | throws on failure |
 | `json.encode(v)` | `JSON.stringify(v)` |
 | `json.decode(s)` | `JSON.parse(s)` |
 | `http.get(url)` | async `fetch()` wrapper |
@@ -451,6 +471,39 @@ try {
 } catch (e) {
   print(e);
 }
+```
+
+### Assert & Testing
+
+```
+// Built-in assert
+assert(1 + 1 == 2);
+assert(x > 0, "x must be positive");
+```
+
+Create test files with `.test.nk` extension and run them with `nk test`:
+
+```bash
+nk test          # runs all *.test.nk files recursively
+nk test tests/   # runs tests in a specific directory
+```
+
+### Package Manager
+
+```bash
+nk init                      # creates nk.toml
+nk install owner/repo        # clones from GitHub into nk_modules/
+```
+
+Manifest format (`nk.toml`):
+
+```toml
+[package]
+name = "myproject"
+version = "0.1.0"
+
+[dependencies]
+utils = "github:user/nk-utils"
 ```
 
 ### Comments
@@ -507,7 +560,7 @@ The playground includes a code editor, example programs, real-time diagnostics w
 npm test
 ```
 
-265 tests across lexer, parser, type checker, code generator, and LSP modules.
+306 tests across lexer, parser, type checker, code generator, package manager, and LSP modules.
 
 ## Architecture
 
