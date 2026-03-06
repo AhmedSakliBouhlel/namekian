@@ -26,6 +26,8 @@ interface CliOptions {
   watch?: boolean;
   sourceMap?: boolean;
   run?: boolean;
+  coverage?: boolean;
+  target?: "js" | "wasm";
 }
 
 function parseArgs(args: string[]): CliOptions | null {
@@ -38,7 +40,10 @@ function parseArgs(args: string[]): CliOptions | null {
     return { command: "init", file: "." };
   }
   if (args[0] === "test") {
-    return { command: "test", file: args[1] || "." };
+    const testArgs = args.slice(1);
+    const cov = testArgs.includes("--coverage");
+    const testFile = testArgs.find((a) => !a.startsWith("-")) || ".";
+    return { command: "test", file: testFile, coverage: cov };
   }
   if (args[0] === "doc") {
     return { command: "doc", file: args[1] || "." };
@@ -64,6 +69,7 @@ function parseArgs(args: string[]): CliOptions | null {
   let watch = false;
   let sourceMap = false;
   let run = false;
+  let target: "js" | "wasm" | undefined;
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -81,6 +87,10 @@ function parseArgs(args: string[]): CliOptions | null {
       sourceMap = true;
     } else if (arg === "--run") {
       run = true;
+    } else if (arg === "--target" && i + 1 < args.length) {
+      const t = args[++i];
+      if (t === "wasm") target = "wasm";
+      else target = "js";
     } else if (!arg.startsWith("-")) {
       file = arg;
     }
@@ -97,6 +107,7 @@ function parseArgs(args: string[]): CliOptions | null {
     watch,
     sourceMap,
     run,
+    target,
   };
 }
 
@@ -130,6 +141,8 @@ Options:
   -w, --watch     Watch for changes and recompile
   --run           Re-run after successful compilation (with --watch)
   --source-map    Generate source map (.js.map) alongside compiled output
+  --target wasm   Compile to WebAssembly Text (WAT) instead of JavaScript
+  --coverage      Show coverage report (with test command)
 `.trim(),
   );
 }
@@ -209,7 +222,7 @@ export async function cli(args: string[]): Promise<void> {
   }
 
   if (opts.command === "test") {
-    await runTests(opts.file);
+    await runTests(opts.file, opts.coverage);
     return;
   }
 
@@ -303,6 +316,31 @@ export async function cli(args: string[]): Promise<void> {
     }
 
     case "build": {
+      if (opts.target === "wasm") {
+        const lexer = new Lexer(source, filePath);
+        const tokens = lexer.tokenize();
+        const parser = new Parser(tokens, filePath);
+        const ast = parser.parse();
+        if (parser.diagnostics.some((d) => d.severity === "error")) {
+          reportDiagnostics(parser.diagnostics, source);
+          process.exit(1);
+        }
+        const { generateWat } = await import("./codegen/wasm-codegen.js");
+        const wasmResult = generateWat(ast);
+        if (wasmResult.diagnostics.length > 0) {
+          reportDiagnostics(wasmResult.diagnostics, source);
+        }
+        if (!wasmResult.success || !wasmResult.wat) {
+          process.exit(1);
+        }
+        const watFile = resolve(
+          opts.outDir || dirname(filePath),
+          basename(filePath).replace(/\.nk$/, ".wat"),
+        );
+        writeFileSync(watFile, wasmResult.wat);
+        console.log(`Compiled: ${watFile}`);
+        break;
+      }
       let childProc: ReturnType<typeof import("child_process").spawn> | null =
         null;
 
@@ -432,7 +470,7 @@ export async function cli(args: string[]): Promise<void> {
 
 // --- Feature 9: Test runner ---
 
-async function runTests(dir: string): Promise<void> {
+async function runTests(dir: string, coverage?: boolean): Promise<void> {
   const testDir = resolve(dir);
   const testFiles = findTestFiles(testDir);
 
@@ -443,6 +481,11 @@ async function runTests(dir: string): Promise<void> {
 
   let passed = 0;
   let failed = 0;
+  const coverageReports: {
+    file: string;
+    percentage: number;
+    uncovered: number[];
+  }[] = [];
 
   for (const file of testFiles) {
     const source = readFileSync(file, "utf-8");
@@ -459,28 +502,57 @@ async function runTests(dir: string): Promise<void> {
       continue;
     }
 
-    try {
-      const tmpFile = `/tmp/nk_test_${Date.now()}.mjs`;
-      writeFileSync(tmpFile, result.js);
-      const { execSync } = await import("child_process");
-      execSync(`node ${tmpFile}`, { encoding: "utf-8", stdio: "pipe" });
-      const { unlinkSync } = await import("fs");
-      try {
-        unlinkSync(tmpFile);
-      } catch {}
+    if (coverage) {
+      const { runWithCoverage } = await import("./coverage.js");
+      const report = await runWithCoverage(result.js, file);
+      if (report) {
+        coverageReports.push({
+          file,
+          percentage: report.percentage,
+          uncovered: report.uncoveredLines,
+        });
+      }
       console.log(`${GREEN}  \u2714 ${file}${RESET}`);
       passed++;
-    } catch (err: unknown) {
-      console.log(`${RED}  \u2718 ${file}${RESET}`);
-      if (err instanceof Error && "stderr" in err) {
-        const msg = String((err as { stderr: unknown }).stderr).trim();
-        if (msg) console.log(`    ${msg.split("\n")[0]}`);
+    } else {
+      try {
+        const tmpFile = `/tmp/nk_test_${Date.now()}.mjs`;
+        writeFileSync(tmpFile, result.js);
+        const { execSync } = await import("child_process");
+        execSync(`node ${tmpFile}`, { encoding: "utf-8", stdio: "pipe" });
+        const { unlinkSync } = await import("fs");
+        try {
+          unlinkSync(tmpFile);
+        } catch {}
+        console.log(`${GREEN}  \u2714 ${file}${RESET}`);
+        passed++;
+      } catch (err: unknown) {
+        console.log(`${RED}  \u2718 ${file}${RESET}`);
+        if (err instanceof Error && "stderr" in err) {
+          const msg = String((err as { stderr: unknown }).stderr).trim();
+          if (msg) console.log(`    ${msg.split("\n")[0]}`);
+        }
+        failed++;
       }
-      failed++;
     }
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);
+
+  if (coverage && coverageReports.length > 0) {
+    console.log(`\n${CYAN}Coverage:${RESET}`);
+    for (const r of coverageReports) {
+      const color =
+        r.percentage >= 80 ? GREEN : r.percentage >= 50 ? CYAN : RED;
+      console.log(`  ${color}${r.percentage}%${RESET} ${r.file}`);
+      if (r.uncovered.length > 0 && r.uncovered.length <= 10) {
+        console.log(
+          `    ${GRAY}Uncovered lines: ${r.uncovered.join(", ")}${RESET}`,
+        );
+      }
+    }
+  }
+
   if (failed > 0) process.exit(1);
 }
 

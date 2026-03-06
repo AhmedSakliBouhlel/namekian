@@ -45,6 +45,12 @@ export class CodeGenerator {
   private projectMode = false;
   private trackSourceMap = false;
   private sourceMapGen: SourceMapGenerator = new SourceMapGenerator();
+  // Extension method registry: typeName → Set<methodName>
+  private extensionMethods = new Map<string, Set<string>>();
+  // Operator overload registry: structName → Map<operator, methodName>
+  private operatorMethods = new Map<string, Map<string, string>>();
+  // Variable type tracker: varName → structName (for operator dispatch)
+  private varTypes = new Map<string, string>();
 
   generate(program: Program, options?: { projectMode?: boolean }): string {
     this.projectMode = options?.projectMode ?? false;
@@ -240,8 +246,53 @@ export class CodeGenerator {
     if (source.includes('"Identifier","name":"env"')) {
       this.usesEnv = true;
     }
+    // Collect extension methods and operator overloads
+    this.collectExtensionsAndOperators(program);
+
     // Detect async: functions calling http.get/post etc.
     this.detectAsync(program);
+  }
+
+  private collectExtensionsAndOperators(program: Program): void {
+    for (const stmt of program.body) {
+      if (stmt.kind === "ExtensionDeclaration") {
+        const typeName =
+          stmt.targetType.kind === "NamedType" ? stmt.targetType.name : "__ext";
+        if (!this.extensionMethods.has(typeName)) {
+          this.extensionMethods.set(typeName, new Set());
+        }
+        const methodSet = this.extensionMethods.get(typeName)!;
+        for (const m of stmt.methods) {
+          methodSet.add(m.name);
+        }
+      }
+      if (
+        stmt.kind === "StructDeclaration" ||
+        stmt.kind === "ClassDeclaration"
+      ) {
+        for (const m of stmt.methods) {
+          if (m.name.startsWith("__op_")) {
+            if (!this.operatorMethods.has(stmt.name)) {
+              this.operatorMethods.set(stmt.name, new Map());
+            }
+            // Map operator symbol to method name
+            const opMap: Record<string, string> = {
+              __op_plus: "+",
+              __op_minus: "-",
+              __op_mul: "*",
+              __op_div: "/",
+              __op_mod: "%",
+              __op_eq: "==",
+            };
+            for (const [methodName, op] of Object.entries(opMap)) {
+              if (m.name === methodName) {
+                this.operatorMethods.get(stmt.name)!.set(op, methodName);
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   private detectAsync(program: Program): void {
@@ -454,6 +505,22 @@ export class CodeGenerator {
         this.emit(
           `${exportPrefix}${keyword} ${stmt.name} = ${this.genExpr(stmt.initializer)};`,
         );
+        // Track variable types for operator dispatch
+        if (
+          stmt.type &&
+          stmt.type.kind === "NamedType" &&
+          this.operatorMethods.has(stmt.type.name)
+        ) {
+          this.varTypes.set(stmt.name, stmt.type.name);
+        } else if (
+          stmt.initializer.kind === "NewExpr" &&
+          stmt.initializer.callee.kind === "Identifier"
+        ) {
+          const ctorName = stmt.initializer.callee.name;
+          if (this.operatorMethods.has(ctorName)) {
+            this.varTypes.set(stmt.name, ctorName);
+          }
+        }
         break;
       }
 
@@ -932,13 +999,34 @@ export class CodeGenerator {
       case "Identifier":
         return this.mapIdentifier(expr.name);
 
-      case "BinaryExpr":
+      case "BinaryExpr": {
+        // Check for operator overloading
+        if (expr.left.kind === "Identifier") {
+          const structName = this.varTypes.get(expr.left.name);
+          if (structName) {
+            const opMethod = this.findOperatorMethod(structName, expr.operator);
+            if (opMethod) {
+              return `${this.genExpr(expr.left)}.${opMethod}(${this.genExpr(expr.right)})`;
+            }
+          }
+        }
         return `(${this.genExpr(expr.left)} ${expr.operator} ${this.genExpr(expr.right)})`;
+      }
 
       case "UnaryExpr":
         return `${expr.operator}${this.genExpr(expr.operand)}`;
 
       case "CallExpr": {
+        // Check for extension method call: obj.method(args) → __ext_type_method(obj, args)
+        if (expr.callee.kind === "MemberExpr") {
+          const extMatch = this.findExtensionMethod(expr.callee.property);
+          if (extMatch) {
+            const obj = this.genExpr(expr.callee.object);
+            const args = expr.args.map((a) => this.genExpr(a));
+            const allArgs = [obj, ...args].join(", ");
+            return `__ext_${extMatch}_${expr.callee.property}(${allArgs})`;
+          }
+        }
         const callee = this.genExpr(expr.callee);
         const args = expr.args.map((a) => this.genExpr(a)).join(", ");
         const needsAwait = this.isAsyncCall(expr.callee);
@@ -1198,5 +1286,29 @@ export class CodeGenerator {
       }
     }
     return false;
+  }
+
+  /**
+   * Find which extension type provides a given method name.
+   * Returns the type name or null if no extension defines it.
+   */
+  private findExtensionMethod(methodName: string): string | null {
+    for (const [typeName, methods] of this.extensionMethods) {
+      if (methods.has(methodName)) return typeName;
+    }
+    return null;
+  }
+
+  /**
+   * Check if a struct/class name has an operator overload for the given operator.
+   * Returns the method name (e.g., "__op_plus") or null.
+   */
+  private findOperatorMethod(
+    structName: string,
+    operator: string,
+  ): string | null {
+    const ops = this.operatorMethods.get(structName);
+    if (!ops) return null;
+    return ops.get(operator) ?? null;
   }
 }

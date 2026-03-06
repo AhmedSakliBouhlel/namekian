@@ -1,0 +1,49 @@
+// Standard Library Showcase — regex, time, crypto, path, env
+
+// --- Regex ---
+bool isEmail = regex.test("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}", "user@example.com");
+print("Is email: ${isEmail}");
+
+string censored = regex.replace("\\d{4}", "****", "Card: 1234-5678-9012-3456");
+print(censored);
+
+string[] words = regex.split("\\s+", "hello   world   foo");
+print("Words: ${words}");
+
+// --- Time ---
+float now = time.now();
+print("Current time (ms): ${now}");
+
+string formatted = time.format(now);
+print("Formatted: ${formatted}");
+
+// --- Crypto ---
+string hash = crypto.hash("sha256", "hello world");
+print("SHA-256: ${hash}");
+
+string id = crypto.uuid();
+print("UUID: ${id}");
+
+// --- Path ---
+string fullPath = path.join("src", "lib", "utils.nk");
+print("Joined path: ${fullPath}");
+
+string dir = path.dirname("/home/user/project/main.nk");
+print("Directory: ${dir}");
+
+string base = path.basename("/home/user/project/main.nk");
+print("Basename: ${base}");
+
+string ext = path.ext("main.nk");
+print("Extension: ${ext}");
+
+bool absolute = path.isAbsolute("/usr/bin");
+print("Is absolute: ${absolute}");
+
+// --- Env ---
+env.set("NK_DEMO", "hello from namekian");
+bool hasVar = env.has("NK_DEMO");
+print("Has NK_DEMO: ${hasVar}");
+
+string? value = env.get("NK_DEMO");
+print("NK_DEMO = ${value}");

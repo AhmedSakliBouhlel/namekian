@@ -122,10 +122,37 @@ connection.onHover((params): Hover | null => {
     label = typeToString(type);
   }
 
+  // Find doc comment for the hovered symbol
+  let docComment: string | undefined;
+  if (node.kind === "Identifier" && cached.ast) {
+    for (const stmt of cached.ast.body) {
+      if (
+        stmt.kind === "FunctionDeclaration" &&
+        stmt.name === node.name &&
+        stmt.docComment
+      ) {
+        docComment = stmt.docComment;
+        break;
+      }
+      if (
+        (stmt.kind === "StructDeclaration" ||
+          stmt.kind === "ClassDeclaration" ||
+          stmt.kind === "EnumDeclaration") &&
+        stmt.name === node.name &&
+        stmt.docComment
+      ) {
+        docComment = stmt.docComment;
+        break;
+      }
+    }
+  }
+
+  const docSection = docComment ? `\n\n${docComment}` : "";
+
   return {
     contents: {
       kind: MarkupKind.Markdown,
-      value: "```namekian\n" + label + "\n```",
+      value: "```namekian\n" + label + "\n```" + docSection,
     },
   };
 });
