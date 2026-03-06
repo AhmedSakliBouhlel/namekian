@@ -1,10 +1,20 @@
-import { readFileSync, writeFileSync } from "fs";
-import { resolve } from "path";
+import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import { resolve, basename, dirname, join } from "path";
 import { compile, buildProject } from "./compiler.js";
 import { Lexer } from "./lexer/lexer.js";
 import { Parser } from "./parser/parser.js";
+import { TypeChecker } from "./checker/checker.js";
 import { reportDiagnostics } from "./errors/reporter.js";
 import { Formatter } from "./formatter/formatter.js";
+import { typeToString } from "./checker/types.js";
+import { readManifest, writeManifest, installDep } from "./package.js";
+
+// ANSI color helpers
+const RED = "\x1b[31m";
+const GREEN = "\x1b[32m";
+const CYAN = "\x1b[36m";
+const GRAY = "\x1b[90m";
+const RESET = "\x1b[0m";
 
 interface CliOptions {
   command: string;
@@ -15,11 +25,23 @@ interface CliOptions {
   showTokens?: boolean;
   watch?: boolean;
   sourceMap?: boolean;
+  run?: boolean;
 }
 
 function parseArgs(args: string[]): CliOptions | null {
   if (args.length === 0 || (args.length === 1 && args[0] === "repl")) {
     return { command: "repl", file: "" };
+  }
+
+  // Commands that don't need a file
+  if (args[0] === "init") {
+    return { command: "init", file: "." };
+  }
+  if (args[0] === "test") {
+    return { command: "test", file: args[1] || "." };
+  }
+  if (args[0] === "install" && args.length >= 2) {
+    return { command: "install", file: args[1] };
   }
 
   if (args.length < 2) return null;
@@ -32,6 +54,7 @@ function parseArgs(args: string[]): CliOptions | null {
   let showTokens = false;
   let watch = false;
   let sourceMap = false;
+  let run = false;
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -47,6 +70,8 @@ function parseArgs(args: string[]): CliOptions | null {
       watch = true;
     } else if (arg === "--source-map") {
       sourceMap = true;
+    } else if (arg === "--run") {
+      run = true;
     } else if (!arg.startsWith("-")) {
       file = arg;
     }
@@ -62,6 +87,7 @@ function parseArgs(args: string[]): CliOptions | null {
     showTokens,
     watch,
     sourceMap,
+    run,
   };
 }
 
@@ -79,6 +105,9 @@ Commands:
   fmt <file>      Format source code
   tokens <file>   Print token stream
   ast <file>      Print AST as JSON
+  test [dir]      Run *.test.nk files
+  init            Create nk.toml in current directory
+  install <repo>  Install dependency (owner/repo)
   repl            Start interactive REPL (also: nk with no args)
 
 Options:
@@ -87,6 +116,7 @@ Options:
   --ast           Also print AST when building
   --tokens        Also print tokens when building
   -w, --watch     Watch for changes and recompile
+  --run           Re-run after successful compilation (with --watch)
   --source-map    Generate source map (.js.map) alongside compiled output
 `.trim(),
   );
@@ -101,6 +131,56 @@ export async function cli(args: string[]): Promise<void> {
 
   if (opts.command === "repl") {
     await startRepl();
+    return;
+  }
+
+  if (opts.command === "init") {
+    const dir = resolve(".");
+    const name = basename(dir);
+    writeManifest(dir, {
+      package: { name, version: "0.1.0" },
+      dependencies: {},
+    });
+    console.log(`${GREEN}Created nk.toml${RESET}`);
+    return;
+  }
+
+  if (opts.command === "install") {
+    const dir = resolve(".");
+    const spec = opts.file;
+    const { name, path: targetDir } = installDep(dir, spec);
+
+    // Create nk_modules directory
+    mkdirSync(dirname(targetDir), { recursive: true });
+
+    // Clone the repo
+    const { execSync } = await import("child_process");
+    try {
+      console.log(`Installing ${spec}...`);
+      execSync(`git clone https://github.com/${spec}.git "${targetDir}"`, {
+        stdio: "inherit",
+      });
+    } catch {
+      console.error(`${RED}Failed to install ${spec}${RESET}`);
+      process.exit(1);
+    }
+
+    // Update nk.toml
+    let manifest = readManifest(dir);
+    if (!manifest) {
+      manifest = {
+        package: { name: basename(dir), version: "0.1.0" },
+        dependencies: {},
+      };
+    }
+    manifest.dependencies[name] = `github:${spec}`;
+    writeManifest(dir, manifest);
+    console.log(`${GREEN}Installed ${spec}${RESET}`);
+    return;
+  }
+
+  if (opts.command === "test") {
+    await runTests(opts.file);
     return;
   }
 
@@ -155,6 +235,9 @@ export async function cli(args: string[]): Promise<void> {
     }
 
     case "build": {
+      let childProc: ReturnType<typeof import("child_process").spawn> | null =
+        null;
+
       const doBuild = () => {
         const src = readFileSync(filePath, "utf-8");
 
@@ -193,6 +276,23 @@ export async function cli(args: string[]): Promise<void> {
 
         for (const outFile of buildResult.outputFiles) {
           console.log(`Compiled: ${outFile}`);
+        }
+
+        // Feature 8: --run flag: re-run after successful build
+        if (opts.run && buildResult.outputFiles.length > 0) {
+          const { spawn } =
+            require("child_process") as typeof import("child_process");
+          if (childProc) {
+            childProc.kill();
+            childProc = null;
+          }
+          console.log(`\n--- Running... ---`);
+          childProc = spawn("node", [buildResult.outputFiles[0]], {
+            stdio: "inherit",
+          });
+          childProc.on("exit", () => {
+            childProc = null;
+          });
         }
       };
 
@@ -262,12 +362,134 @@ export async function cli(args: string[]): Promise<void> {
   }
 }
 
+// --- Feature 9: Test runner ---
+
+async function runTests(dir: string): Promise<void> {
+  const testDir = resolve(dir);
+  const testFiles = findTestFiles(testDir);
+
+  if (testFiles.length === 0) {
+    console.log("No test files found (*.test.nk)");
+    return;
+  }
+
+  let passed = 0;
+  let failed = 0;
+
+  for (const file of testFiles) {
+    const source = readFileSync(file, "utf-8");
+    const result = compile(source, file);
+
+    if (!result.success || !result.js) {
+      console.log(`${RED}  \u2718 ${file}${RESET}`);
+      if (result.diagnostics.length > 0) {
+        for (const d of result.diagnostics) {
+          console.log(`    ${d.severity}: ${d.message}`);
+        }
+      }
+      failed++;
+      continue;
+    }
+
+    try {
+      const tmpFile = `/tmp/nk_test_${Date.now()}.mjs`;
+      writeFileSync(tmpFile, result.js);
+      const { execSync } = await import("child_process");
+      execSync(`node ${tmpFile}`, { encoding: "utf-8", stdio: "pipe" });
+      const { unlinkSync } = await import("fs");
+      try {
+        unlinkSync(tmpFile);
+      } catch {}
+      console.log(`${GREEN}  \u2714 ${file}${RESET}`);
+      passed++;
+    } catch (err: unknown) {
+      console.log(`${RED}  \u2718 ${file}${RESET}`);
+      if (err instanceof Error && "stderr" in err) {
+        const msg = String((err as { stderr: unknown }).stderr).trim();
+        if (msg) console.log(`    ${msg.split("\n")[0]}`);
+      }
+      failed++;
+    }
+  }
+
+  console.log(`\n${passed} passed, ${failed} failed`);
+  if (failed > 0) process.exit(1);
+}
+
+function findTestFiles(dir: string): string[] {
+  const { readdirSync, statSync } = require("fs") as typeof import("fs");
+  const results: string[] = [];
+  try {
+    for (const entry of readdirSync(dir)) {
+      if (entry === "nk_modules" || entry === "node_modules") continue;
+      const full = join(dir, entry);
+      try {
+        const stat = statSync(full);
+        if (stat.isDirectory()) {
+          results.push(...findTestFiles(full));
+        } else if (entry.endsWith(".test.nk")) {
+          results.push(full);
+        }
+      } catch {}
+    }
+  } catch {}
+  return results;
+}
+
+// --- Feature 7: REPL improvements ---
+
 async function startRepl(): Promise<void> {
   const { createInterface } = await import("readline");
+
+  // Collect known identifiers for tab completion
+  const keywords = [
+    "int",
+    "float",
+    "string",
+    "bool",
+    "void",
+    "var",
+    "const",
+    "if",
+    "else",
+    "while",
+    "for",
+    "return",
+    "break",
+    "continue",
+    "struct",
+    "class",
+    "interface",
+    "enum",
+    "match",
+    "take",
+    "load",
+    "try",
+    "catch",
+    "true",
+    "false",
+    "null",
+    "new",
+    "print",
+    "assert",
+    "Ok",
+    "Err",
+    "type",
+  ];
+
+  // Persistent checker for type display
+  let checkerNames = [...keywords];
+
+  function completer(line: string): [string[], string] {
+    const hits = checkerNames.filter((c) => c.startsWith(line));
+    return [hits.length > 0 ? hits : checkerNames, line];
+  }
+
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: "nk> ",
+    prompt: `${CYAN}nk>${RESET} `,
+    completer,
   });
 
   console.log("Namekian REPL v0.1.0 — type .exit to quit");
@@ -293,15 +515,15 @@ async function startRepl(): Promise<void> {
 
     if (trimmed === ".clear") {
       buffer = "";
-      rl.setPrompt("nk> ");
+      rl.setPrompt(`${CYAN}nk>${RESET} `);
       rl.prompt();
       return;
     }
 
     buffer += line + "\n";
 
-    // Try to compile and run
-    const result = compile(buffer, "<repl>", { noCheck: true });
+    // Try to compile and run (with type checking enabled)
+    const result = compile(buffer, "<repl>");
 
     if (!result.success || !result.js) {
       // Check if it might be an incomplete statement (missing closing brace, etc.)
@@ -312,7 +534,7 @@ async function startRepl(): Promise<void> {
 
       if (openBraces > closeBraces || openParens > closeParens) {
         // Likely incomplete — wait for more input
-        rl.setPrompt("... ");
+        rl.setPrompt(`${GRAY}...${RESET} `);
         rl.prompt();
         return;
       }
@@ -320,13 +542,52 @@ async function startRepl(): Promise<void> {
       // Real error
       if (result.diagnostics.length > 0) {
         for (const d of result.diagnostics) {
-          console.error(`  ${d.severity}: ${d.message}`);
+          console.error(`  ${RED}${d.severity}: ${d.message}${RESET}`);
         }
       }
       buffer = "";
-      rl.setPrompt("nk> ");
+      rl.setPrompt(`${CYAN}nk>${RESET} `);
       rl.prompt();
       return;
+    }
+
+    // Try to get type info for expression statements
+    if (result.ast) {
+      try {
+        const checker = new TypeChecker("<repl>");
+        checker.check(result.ast);
+        // Update completion candidates
+        const names = new Set([...keywords]);
+        const allSyms = [...checker.getExportedTypes().keys()];
+        for (const s of allSyms) names.add(s);
+        checkerNames = [...names];
+
+        // Show type for the last expression statement
+        const lastStmt = result.ast.body[result.ast.body.length - 1];
+        if (lastStmt && lastStmt.kind === "ExpressionStatement") {
+          const exprType = checker.typeMap.get(lastStmt.expression.span.offset);
+          if (exprType) {
+            // Will print after execution
+            const typeStr = typeToString(exprType);
+            // Execute first, then show type
+            try {
+              const fn = new Function(result.js);
+              fn();
+            } catch (err: unknown) {
+              if (err instanceof Error) {
+                console.error(`  ${RED}Runtime error: ${err.message}${RESET}`);
+              }
+            }
+            console.log(`${GRAY}  // : ${typeStr}${RESET}`);
+            buffer = "";
+            rl.setPrompt(`${CYAN}nk>${RESET} `);
+            rl.prompt();
+            return;
+          }
+        }
+      } catch {
+        // Ignore checker errors for REPL display
+      }
     }
 
     // Execute the compiled JS
@@ -335,12 +596,12 @@ async function startRepl(): Promise<void> {
       fn();
     } catch (err: unknown) {
       if (err instanceof Error) {
-        console.error(`  Runtime error: ${err.message}`);
+        console.error(`  ${RED}Runtime error: ${err.message}${RESET}`);
       }
     }
 
     buffer = "";
-    rl.setPrompt("nk> ");
+    rl.setPrompt(`${CYAN}nk>${RESET} `);
     rl.prompt();
   });
 

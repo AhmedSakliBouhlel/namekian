@@ -313,6 +313,8 @@ export class Formatter {
         const init = this.fmtExpr(stmt.initializer);
         if (stmt.pattern === "object") {
           this.emit(`var { ${names} } = ${init};`);
+        } else if (stmt.pattern === "tuple") {
+          this.emit(`var (${names}) = ${init};`);
         } else {
           this.emit(`var [${names}] = ${init};`);
         }

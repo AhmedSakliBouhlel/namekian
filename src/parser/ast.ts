@@ -504,7 +504,7 @@ export interface MatchStatement {
 
 export interface DestructureDeclaration {
   kind: "DestructureDeclaration";
-  pattern: "object" | "array";
+  pattern: "object" | "array" | "tuple";
   names: string[];
   initializer: Expression;
   span: SourceSpan;
