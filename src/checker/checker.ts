@@ -15,10 +15,12 @@ import {
   NK_VOID,
   NK_NULL,
   NK_ANY,
+  NK_NEVER,
   NkFunction,
   NkStruct,
   NkClass,
   NkResult,
+  NkChannel,
   isAssignable,
   typeToString,
   NkTypeVar,
@@ -77,6 +79,12 @@ export class TypeChecker {
     this.env.define("fs", NK_ANY);
     // stream module (sync I/O)
     this.env.define("stream", NK_ANY);
+    // stdlib modules
+    this.env.define("regex", NK_ANY);
+    this.env.define("time", NK_ANY);
+    this.env.define("crypto", NK_ANY);
+    this.env.define("path", NK_ANY);
+    this.env.define("env", NK_ANY);
     // assert(condition, message?)
     this.env.define("assert", {
       tag: "function",
@@ -131,7 +139,7 @@ export class TypeChecker {
 
   /** Find the closest matching type name. */
   private suggestType(name: string): string | undefined {
-    const builtins = ["int", "float", "string", "bool", "void"];
+    const builtins = ["int", "float", "string", "bool", "void", "never"];
     const registered = this.env.allTypeNames();
     return findClosest(name, [...builtins, ...registered]);
   }
@@ -175,6 +183,66 @@ export class TypeChecker {
             valueType: this.resolveType(ann.typeArgs[1]),
           };
         }
+        if (ann.name === "chan" && ann.typeArgs.length === 1) {
+          return {
+            tag: "channel",
+            elementType: this.resolveType(ann.typeArgs[0]),
+          } as NkChannel;
+        }
+        // Utility types
+        if (ann.typeArgs.length >= 1) {
+          const innerType = this.resolveType(ann.typeArgs[0]);
+          if (
+            ann.name === "Partial" &&
+            (innerType.tag === "struct" || innerType.tag === "class")
+          ) {
+            const fields = new Map<string, NkType>();
+            for (const [k, v] of innerType.fields) {
+              fields.set(k, { tag: "nullable", innerType: v });
+            }
+            return { ...innerType, fields };
+          }
+          if (
+            ann.name === "Required" &&
+            (innerType.tag === "struct" || innerType.tag === "class")
+          ) {
+            const fields = new Map<string, NkType>();
+            for (const [k, v] of innerType.fields) {
+              fields.set(k, v.tag === "nullable" ? v.innerType : v);
+            }
+            return { ...innerType, fields };
+          }
+          if (ann.name === "Readonly") {
+            return innerType;
+          }
+          if (
+            ann.name === "Pick" &&
+            ann.typeArgs.length === 2 &&
+            (innerType.tag === "struct" || innerType.tag === "class")
+          ) {
+            const keysType = this.resolveType(ann.typeArgs[1]);
+            const keys = this.extractLiteralKeys(keysType);
+            const fields = new Map<string, NkType>();
+            for (const k of keys) {
+              const v = innerType.fields.get(k);
+              if (v) fields.set(k, v);
+            }
+            return { ...innerType, fields };
+          }
+          if (
+            ann.name === "Omit" &&
+            ann.typeArgs.length === 2 &&
+            (innerType.tag === "struct" || innerType.tag === "class")
+          ) {
+            const keysType = this.resolveType(ann.typeArgs[1]);
+            const keys = new Set(this.extractLiteralKeys(keysType));
+            const fields = new Map<string, NkType>();
+            for (const [k, v] of innerType.fields) {
+              if (!keys.has(k)) fields.set(k, v);
+            }
+            return { ...innerType, fields };
+          }
+        }
         return NK_ANY;
       case "FunctionType": {
         const params = ann.params.map((p) => this.resolveType(p));
@@ -191,7 +259,35 @@ export class TypeChecker {
           types: ann.types.map((t) => this.resolveType(t)),
         };
       }
+      case "LiteralType": {
+        const v = ann.value;
+        let baseType: "string" | "int" | "float" | "bool";
+        if (typeof v === "string") baseType = "string";
+        else if (typeof v === "boolean") baseType = "bool";
+        else if (Number.isInteger(v)) baseType = "int";
+        else baseType = "float";
+        return { tag: "literal", value: v, baseType };
+      }
+      case "IntersectionType": {
+        return {
+          tag: "intersection",
+          types: ann.types.map((t) => this.resolveType(t)),
+        };
+      }
     }
+  }
+
+  private extractLiteralKeys(t: NkType): string[] {
+    if (t.tag === "literal" && typeof t.value === "string") return [t.value];
+    if (t.tag === "union") {
+      const keys: string[] = [];
+      for (const m of t.types) {
+        if (m.tag === "literal" && typeof m.value === "string")
+          keys.push(m.value);
+      }
+      return keys;
+    }
+    return [];
   }
 
   private resolveNamedType(name: string): NkType {
@@ -206,6 +302,8 @@ export class TypeChecker {
         return NK_BOOL;
       case "void":
         return NK_VOID;
+      case "never":
+        return NK_NEVER;
       default: {
         const registered = this.env.lookupType(name);
         if (registered) return registered;
@@ -704,6 +802,12 @@ export class TypeChecker {
         for (const arm of stmt.arms) {
           this.env.enterScope();
           this.bindMatchPattern(arm.pattern);
+          if (arm.guard) {
+            const guardType = this.checkExpression(arm.guard);
+            if (guardType.tag !== "bool" && guardType.tag !== "any") {
+              this.error("Match guard must be a boolean expression", arm.guard);
+            }
+          }
           if (arm.body.kind === "BlockStatement") {
             this.checkStatement(arm.body);
           } else {
@@ -748,36 +852,63 @@ export class TypeChecker {
         break;
       }
 
+      case "DeferStatement":
+        this.checkStatement(stmt.body);
+        break;
+
+      case "ExtensionDeclaration": {
+        const targetType = this.resolveType(stmt.targetType);
+        for (const m of stmt.methods) {
+          this.env.enterScope();
+          this.env.define("this", targetType);
+          for (const p of m.params) {
+            this.env.define(p.name, p.type ? this.resolveType(p.type) : NK_ANY);
+          }
+          const prevReturn = this.currentReturnType;
+          this.currentReturnType = m.returnType
+            ? this.resolveType(m.returnType)
+            : NK_VOID;
+          this.checkStatement(m.body);
+          this.currentReturnType = prevReturn;
+          this.env.exitScope();
+        }
+        break;
+      }
+
       case "BreakStatement":
       case "ContinueStatement":
         break;
     }
   }
 
-  private bindMatchPattern(pattern: {
-    kind: string;
-    binding?: string;
-    name?: string;
-    bindings?: string[];
-  }): void {
-    if ("binding" in pattern && pattern.binding) {
-      this.env.define(pattern.binding, NK_ANY);
-    }
-    if (
-      pattern.kind === "IdentifierPattern" &&
-      "name" in pattern &&
-      pattern.name
-    ) {
-      this.env.define(pattern.name as string, NK_ANY);
-    }
-    if (
-      pattern.kind === "EnumVariantPattern" &&
-      "bindings" in pattern &&
-      pattern.bindings
-    ) {
-      for (const b of pattern.bindings) {
-        this.env.define(b, NK_ANY);
-      }
+  private bindMatchPattern(
+    pattern: import("../parser/ast.js").MatchPattern,
+  ): void {
+    switch (pattern.kind) {
+      case "OkPattern":
+      case "ErrPattern":
+        this.bindMatchPattern(pattern.inner);
+        break;
+      case "IdentifierPattern":
+        this.env.define(pattern.name, NK_ANY);
+        break;
+      case "BindingPattern":
+        this.env.define(pattern.name, NK_ANY);
+        this.bindMatchPattern(pattern.pattern);
+        break;
+      case "EnumVariantPattern":
+        for (const b of pattern.bindings) {
+          this.bindMatchPattern(b);
+        }
+        break;
+      case "TuplePattern":
+        for (const el of pattern.elements) {
+          this.bindMatchPattern(el);
+        }
+        break;
+      case "LiteralPattern":
+      case "WildcardPattern":
+        break;
     }
   }
 
@@ -1227,6 +1358,12 @@ export class TypeChecker {
         for (const arm of expr.arms) {
           this.env.enterScope();
           this.bindMatchPattern(arm.pattern);
+          if (arm.guard) {
+            const guardType = this.checkExpression(arm.guard);
+            if (guardType.tag !== "bool" && guardType.tag !== "any") {
+              this.error("Match guard must be a boolean expression", arm.guard);
+            }
+          }
           if (arm.body.kind === "BlockStatement") {
             this.checkStatement(arm.body);
           } else {
@@ -1361,6 +1498,33 @@ export class TypeChecker {
         }
         return NK_ANY;
       }
+
+      case "NamedArgExpr":
+        return this.checkExpression(expr.value);
+
+      case "AwaitAllExpr": {
+        const types = expr.expressions.map((e) => this.checkExpression(e));
+        return {
+          tag: "array",
+          elementType: types.length > 0 ? types[0] : NK_ANY,
+        };
+      }
+
+      case "AwaitRaceExpr": {
+        const types = expr.expressions.map((e) => this.checkExpression(e));
+        if (types.length === 0) return NK_ANY;
+        if (types.length === 1) return types[0];
+        return { tag: "union", types };
+      }
+
+      case "SpawnExpr":
+        return this.checkExpression(expr.expression);
+
+      case "ChanExpr": {
+        this.checkExpression(expr.capacity);
+        const elemType = this.resolveType(expr.elementType);
+        return { tag: "channel", elementType: elemType } as NkChannel;
+      }
     }
   }
 
@@ -1426,11 +1590,12 @@ export class TypeChecker {
     arms: import("../parser/ast.js").MatchArm[],
     node: { span: { line: number; column: number; offset: number } },
   ): void {
-    // Skip if wildcard or identifier pattern present (catches everything)
+    // Skip if wildcard or identifier pattern present without guard (catches everything)
     for (const arm of arms) {
       if (
-        arm.pattern.kind === "WildcardPattern" ||
-        arm.pattern.kind === "IdentifierPattern"
+        !arm.guard &&
+        (arm.pattern.kind === "WildcardPattern" ||
+          arm.pattern.kind === "IdentifierPattern")
       ) {
         return;
       }

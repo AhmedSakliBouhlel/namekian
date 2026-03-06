@@ -12,7 +12,9 @@ export type TypeAnnotation =
   | GenericType
   | FunctionType
   | TupleType
-  | UnionType;
+  | UnionType
+  | LiteralTypeAnnotation
+  | IntersectionTypeAnnotation;
 
 export interface NamedType {
   kind: "NamedType";
@@ -58,6 +60,18 @@ export interface UnionType {
   span: SourceSpan;
 }
 
+export interface LiteralTypeAnnotation {
+  kind: "LiteralType";
+  value: string | number | boolean;
+  span: SourceSpan;
+}
+
+export interface IntersectionTypeAnnotation {
+  kind: "IntersectionType";
+  types: TypeAnnotation[];
+  span: SourceSpan;
+}
+
 // Expressions
 export type Expression =
   | IntLiteralExpr
@@ -92,7 +106,12 @@ export type Expression =
   | ArrayComprehensionExpr
   | TypeGuardExpr
   | AwaitExpr
-  | ResultUnwrapExpr;
+  | ResultUnwrapExpr
+  | NamedArgExpr
+  | AwaitAllExpr
+  | AwaitRaceExpr
+  | SpawnExpr
+  | ChanExpr;
 
 export interface IntLiteralExpr {
   kind: "IntLiteral";
@@ -316,15 +335,53 @@ export interface MatchExpr {
   span: SourceSpan;
 }
 
+// Named argument: foo(a: 1, b: 2)
+export interface NamedArgExpr {
+  kind: "NamedArgExpr";
+  name: string;
+  value: Expression;
+  span: SourceSpan;
+}
+
+// await all [expr, expr]
+export interface AwaitAllExpr {
+  kind: "AwaitAllExpr";
+  expressions: Expression[];
+  span: SourceSpan;
+}
+
+// await race [expr, expr]
+export interface AwaitRaceExpr {
+  kind: "AwaitRaceExpr";
+  expressions: Expression[];
+  span: SourceSpan;
+}
+
+// spawn expr
+export interface SpawnExpr {
+  kind: "SpawnExpr";
+  expression: Expression;
+  span: SourceSpan;
+}
+
+// chan<Type>(capacity)
+export interface ChanExpr {
+  kind: "ChanExpr";
+  elementType: TypeAnnotation;
+  capacity: Expression;
+  span: SourceSpan;
+}
+
 export interface MatchArm {
   pattern: MatchPattern;
+  guard?: Expression;
   body: Expression | BlockStatement;
   span: SourceSpan;
 }
 
 export type MatchPattern =
-  | { kind: "OkPattern"; binding: string; span: SourceSpan }
-  | { kind: "ErrPattern"; binding: string; span: SourceSpan }
+  | { kind: "OkPattern"; inner: MatchPattern; span: SourceSpan }
+  | { kind: "ErrPattern"; inner: MatchPattern; span: SourceSpan }
   | { kind: "LiteralPattern"; value: Expression; span: SourceSpan }
   | { kind: "WildcardPattern"; span: SourceSpan }
   | { kind: "IdentifierPattern"; name: string; span: SourceSpan }
@@ -332,7 +389,14 @@ export type MatchPattern =
       kind: "EnumVariantPattern";
       enumName: string;
       variant: string;
-      bindings: string[];
+      bindings: MatchPattern[];
+      span: SourceSpan;
+    }
+  | { kind: "TuplePattern"; elements: MatchPattern[]; span: SourceSpan }
+  | {
+      kind: "BindingPattern";
+      name: string;
+      pattern: MatchPattern;
       span: SourceSpan;
     };
 
@@ -373,7 +437,9 @@ export type Statement =
   | MatchStatement
   | TypeAliasStatement
   | DestructureDeclaration
-  | DeclareModuleStatement;
+  | DeclareModuleStatement
+  | DeferStatement
+  | ExtensionDeclaration;
 
 export interface VariableDeclaration {
   kind: "VariableDeclaration";
@@ -391,6 +457,8 @@ export interface FunctionDeclaration {
   params: Parameter[];
   returnType?: TypeAnnotation;
   body: BlockStatement;
+  accessor?: "get" | "set";
+  docComment?: string;
   span: SourceSpan;
 }
 
@@ -456,6 +524,7 @@ export interface StructDeclaration {
   typeParams: TypeParam[];
   fields: StructField[];
   methods: FunctionDeclaration[];
+  docComment?: string;
   span: SourceSpan;
 }
 
@@ -467,6 +536,7 @@ export interface ClassDeclaration {
   interfaces: string[];
   fields: StructField[];
   methods: FunctionDeclaration[];
+  docComment?: string;
   span: SourceSpan;
 }
 
@@ -496,6 +566,7 @@ export interface EnumDeclaration {
   kind: "EnumDeclaration";
   name: string;
   variants: EnumVariant[];
+  docComment?: string;
   span: SourceSpan;
 }
 
@@ -550,6 +621,21 @@ export interface TypeAliasStatement {
   kind: "TypeAlias";
   name: string;
   type: TypeAnnotation;
+  span: SourceSpan;
+}
+
+// defer { ... }
+export interface DeferStatement {
+  kind: "DeferStatement";
+  body: BlockStatement;
+  span: SourceSpan;
+}
+
+// extend <type> { methods... }
+export interface ExtensionDeclaration {
+  kind: "ExtensionDeclaration";
+  targetType: TypeAnnotation;
+  methods: FunctionDeclaration[];
   span: SourceSpan;
 }
 

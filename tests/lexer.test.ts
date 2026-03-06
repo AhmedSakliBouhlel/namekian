@@ -265,7 +265,7 @@ describe("Lexer", () => {
   });
 
   it("reports error on unexpected character", () => {
-    const lexer = new Lexer("@");
+    const lexer = new Lexer("~");
     lexer.tokenize();
     expect(lexer.diagnostics.length).toBe(1);
     expect(lexer.diagnostics[0].severity).toBe("error");
@@ -460,5 +460,47 @@ describe("Lexer", () => {
       TokenType.RightParen,
       TokenType.EOF,
     ]);
+  });
+
+  // --- New keywords ---
+
+  it("tokenizes never as Never keyword", () => {
+    expect(tokenTypes("never")).toContain(TokenType.Never);
+  });
+
+  it("tokenizes defer as Defer keyword", () => {
+    expect(tokenTypes("defer")).toContain(TokenType.Defer);
+  });
+
+  it("tokenizes extend as Extend keyword", () => {
+    expect(tokenTypes("extend")).toContain(TokenType.Extend);
+  });
+
+  it("tokenizes spawn as Spawn keyword", () => {
+    expect(tokenTypes("spawn")).toContain(TokenType.Spawn);
+  });
+
+  it("tokenizes chan as Chan keyword", () => {
+    expect(tokenTypes("chan")).toContain(TokenType.Chan);
+  });
+
+  it("tokenizes & as Ampersand", () => {
+    expect(tokenTypes("A & B")).toContain(TokenType.Ampersand);
+  });
+
+  it("tokenizes @ as At", () => {
+    expect(tokenTypes("x @ 1")).toContain(TokenType.At);
+  });
+
+  it("tokenizes get and set as keywords", () => {
+    expect(tokenTypes("get")).toContain(TokenType.Get);
+    expect(tokenTypes("set")).toContain(TokenType.Set);
+  });
+
+  it("tokenizes doc comments (///)", () => {
+    const lexer = new Lexer("/// This is a doc\nint x = 1;");
+    const tokens = lexer.tokenize();
+    expect(tokens[0].type).toBe(TokenType.DocComment);
+    expect(tokens[0].value).toBe("This is a doc");
   });
 });

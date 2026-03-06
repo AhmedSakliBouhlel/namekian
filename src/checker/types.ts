@@ -18,7 +18,11 @@ export type NkType =
   | NkTuple
   | NkTypeVar
   | NkModule
-  | NkUnion;
+  | NkUnion
+  | NkNever
+  | NkLiteralType
+  | NkIntersection
+  | NkChannel;
 
 export interface NkInt {
   tag: "int";
@@ -41,6 +45,15 @@ export interface NkNull {
 export interface NkAny {
   tag: "any";
 }
+export interface NkNever {
+  tag: "never";
+}
+
+export interface NkLiteralType {
+  tag: "literal";
+  value: string | number | boolean;
+  baseType: "string" | "int" | "float" | "bool";
+}
 
 export interface NkArray {
   tag: "array";
@@ -59,6 +72,7 @@ export interface NkFunction {
   returnType: NkType;
   isAsync?: boolean;
   typeParams?: string[];
+  paramNames?: string[];
 }
 
 export interface NkStruct {
@@ -122,6 +136,16 @@ export interface NkUnion {
   types: NkType[];
 }
 
+export interface NkIntersection {
+  tag: "intersection";
+  types: NkType[];
+}
+
+export interface NkChannel {
+  tag: "channel";
+  elementType: NkType;
+}
+
 // Singleton types
 export const NK_INT: NkInt = { tag: "int" };
 export const NK_FLOAT: NkFloat = { tag: "float" };
@@ -130,6 +154,7 @@ export const NK_BOOL: NkBool = { tag: "bool" };
 export const NK_VOID: NkVoid = { tag: "void" };
 export const NK_NULL: NkNull = { tag: "null" };
 export const NK_ANY: NkAny = { tag: "any" };
+export const NK_NEVER: NkNever = { tag: "never" };
 
 export function typeToString(t: NkType): string {
   switch (t.tag) {
@@ -147,6 +172,12 @@ export function typeToString(t: NkType): string {
       return "null";
     case "any":
       return "any";
+    case "never":
+      return "never";
+    case "literal": {
+      if (typeof t.value === "string") return `"${t.value}"`;
+      return String(t.value);
+    }
     case "array":
       return `${typeToString(t.elementType)}[]`;
     case "map":
@@ -177,12 +208,39 @@ export function typeToString(t: NkType): string {
       return `module "${t.name}"`;
     case "union":
       return t.types.map(typeToString).join(" | ");
+    case "intersection":
+      return t.types.map(typeToString).join(" & ");
+    case "channel":
+      return `chan<${typeToString(t.elementType)}>`;
   }
 }
 
 export function isAssignable(target: NkType, source: NkType): boolean {
   if (target.tag === "any" || source.tag === "any") return true;
   if (target.tag === "typevar" || source.tag === "typevar") return true;
+  // never is the bottom type — assignable to everything
+  if (source.tag === "never") return true;
+  // Nothing assignable to never except never itself
+  if (target.tag === "never") return false;
+  // Literal assignable to its base type (widening)
+  if (source.tag === "literal") {
+    if (target.tag === source.baseType) return true;
+    if (target.tag === "float" && source.baseType === "int") return true;
+    if (target.tag === "literal") {
+      return (
+        source.baseType === target.baseType && source.value === target.value
+      );
+    }
+  }
+  // Base type NOT assignable to literal
+  if (target.tag === "literal") {
+    if (source.tag === "literal") {
+      return (
+        source.baseType === target.baseType && source.value === target.value
+      );
+    }
+    return false;
+  }
   // Source is union: all members must be assignable to target
   if (source.tag === "union") {
     return source.types.every((m) => isAssignable(target, m));
@@ -190,6 +248,14 @@ export function isAssignable(target: NkType, source: NkType): boolean {
   // Target is union: source must be assignable to at least one member
   if (target.tag === "union") {
     return target.types.some((m) => isAssignable(m, source));
+  }
+  // Source is intersection: any member assignable to target is sufficient
+  if (source.tag === "intersection") {
+    return source.types.some((m) => isAssignable(target, m));
+  }
+  // Target is intersection: source must be assignable to all members
+  if (target.tag === "intersection") {
+    return target.types.every((m) => isAssignable(m, source));
   }
   if (target.tag === source.tag) {
     if (target.tag === "array" && source.tag === "array") {
@@ -221,6 +287,9 @@ export function isAssignable(target: NkType, source: NkType): boolean {
       return target.elements.every((te, i) =>
         isAssignable(te, source.elements[i]),
       );
+    }
+    if (target.tag === "channel" && source.tag === "channel") {
+      return isAssignable(target.elementType, source.elementType);
     }
     return true;
   }

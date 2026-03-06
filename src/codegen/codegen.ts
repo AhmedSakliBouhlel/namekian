@@ -15,6 +15,12 @@ import {
   NK_STREAM_RUNTIME,
   NK_ASSERT_RUNTIME,
   NK_UNWRAP_RUNTIME,
+  NK_CHANNEL_RUNTIME,
+  NK_REGEX_RUNTIME,
+  NK_TIME_RUNTIME,
+  NK_CRYPTO_RUNTIME,
+  NK_PATH_RUNTIME,
+  NK_ENV_RUNTIME,
 } from "./js-runtime.js";
 import { SourceMapGenerator } from "./source-map.js";
 
@@ -29,6 +35,12 @@ export class CodeGenerator {
   private usesStream = false;
   private usesAssert = false;
   private usesResultUnwrap = false;
+  private usesChannel = false;
+  private usesRegex = false;
+  private usesTime = false;
+  private usesCrypto = false;
+  private usesPath = false;
+  private usesEnv = false;
   private asyncFunctions = new Set<string>();
   private projectMode = false;
   private trackSourceMap = false;
@@ -50,6 +62,12 @@ export class CodeGenerator {
     if (this.usesStream) preamble.push(NK_STREAM_RUNTIME);
     if (this.usesAssert) preamble.push(NK_ASSERT_RUNTIME);
     if (this.usesResultUnwrap) preamble.push(NK_UNWRAP_RUNTIME);
+    if (this.usesChannel) preamble.push(NK_CHANNEL_RUNTIME);
+    if (this.usesRegex) preamble.push(NK_REGEX_RUNTIME);
+    if (this.usesTime) preamble.push(NK_TIME_RUNTIME);
+    if (this.usesCrypto) preamble.push(NK_CRYPTO_RUNTIME);
+    if (this.usesPath) preamble.push(NK_PATH_RUNTIME);
+    if (this.usesEnv) preamble.push(NK_ENV_RUNTIME);
 
     // Second pass: generate code
     for (const stmt of program.body) {
@@ -79,6 +97,12 @@ export class CodeGenerator {
     this.usesStream = false;
     this.usesAssert = false;
     this.usesResultUnwrap = false;
+    this.usesChannel = false;
+    this.usesRegex = false;
+    this.usesTime = false;
+    this.usesCrypto = false;
+    this.usesPath = false;
+    this.usesEnv = false;
     this.asyncFunctions = new Set<string>();
     this.sourceMapGen = new SourceMapGenerator();
     this._pendingMappings = [];
@@ -97,6 +121,12 @@ export class CodeGenerator {
     if (this.usesStream) preamble.push(NK_STREAM_RUNTIME);
     if (this.usesAssert) preamble.push(NK_ASSERT_RUNTIME);
     if (this.usesResultUnwrap) preamble.push(NK_UNWRAP_RUNTIME);
+    if (this.usesChannel) preamble.push(NK_CHANNEL_RUNTIME);
+    if (this.usesRegex) preamble.push(NK_REGEX_RUNTIME);
+    if (this.usesTime) preamble.push(NK_TIME_RUNTIME);
+    if (this.usesCrypto) preamble.push(NK_CRYPTO_RUNTIME);
+    if (this.usesPath) preamble.push(NK_PATH_RUNTIME);
+    if (this.usesEnv) preamble.push(NK_ENV_RUNTIME);
 
     // Account for preamble lines in the output offset
     let preambleLineCount = 0;
@@ -192,6 +222,24 @@ export class CodeGenerator {
       this.usesResultUnwrap = true;
       this.usesResult = true;
     }
+    if (source.includes('"ChanExpr"')) {
+      this.usesChannel = true;
+    }
+    if (source.includes('"Identifier","name":"regex"')) {
+      this.usesRegex = true;
+    }
+    if (source.includes('"Identifier","name":"time"')) {
+      this.usesTime = true;
+    }
+    if (source.includes('"Identifier","name":"crypto"')) {
+      this.usesCrypto = true;
+    }
+    if (source.includes('"Identifier","name":"path"')) {
+      this.usesPath = true;
+    }
+    if (source.includes('"Identifier","name":"env"')) {
+      this.usesEnv = true;
+    }
     // Detect async: functions calling http.get/post etc.
     this.detectAsync(program);
   }
@@ -260,6 +308,19 @@ export class CodeGenerator {
         return (
           this.bodyCallsAsync(stmt.tryBlock, asyncCallees) ||
           this.bodyCallsAsync(stmt.catchBlock, asyncCallees)
+        );
+      case "DeferStatement":
+        return this.bodyCallsAsync(stmt.body, asyncCallees);
+      case "ExtensionDeclaration":
+        return false;
+      case "MatchStatement":
+        return (
+          this.exprCallsAsync(stmt.subject, asyncCallees) ||
+          stmt.arms.some((a) =>
+            a.body.kind === "BlockStatement"
+              ? this.bodyCallsAsync(a.body, asyncCallees)
+              : this.exprCallsAsync(a.body, asyncCallees),
+          )
         );
       default:
         return false;
@@ -344,6 +405,16 @@ export class CodeGenerator {
         return true;
       case "ResultUnwrapExpr":
         return this.exprCallsAsync(expr.expression, asyncCallees);
+      case "NamedArgExpr":
+        return this.exprCallsAsync(expr.value, asyncCallees);
+      case "AwaitAllExpr":
+        return true;
+      case "AwaitRaceExpr":
+        return true;
+      case "SpawnExpr":
+        return this.exprCallsAsync(expr.expression, asyncCallees);
+      case "ChanExpr":
+        return false;
       default:
         return false;
     }
@@ -507,7 +578,8 @@ export class CodeGenerator {
         this.emit("}");
         for (const method of stmt.methods) {
           const params = this.genParams(method.params);
-          this.emit(`${method.name}(${params}) {`);
+          const prefix = method.accessor ? `${method.accessor} ` : "";
+          this.emit(`${prefix}${method.name}(${params}) {`);
           this.indent++;
           this.emitBlock(method.body);
           this.indent--;
@@ -538,7 +610,8 @@ export class CodeGenerator {
         }
         for (const method of stmt.methods) {
           const params = this.genParams(method.params);
-          this.emit(`${method.name}(${params}) {`);
+          const prefix = method.accessor ? `${method.accessor} ` : "";
+          this.emit(`${prefix}${method.name}(${params}) {`);
           this.indent++;
           this.emitBlock(method.body);
           this.indent--;
@@ -643,6 +716,33 @@ export class CodeGenerator {
       case "ContinueStatement":
         this.emit("continue;");
         break;
+
+      case "DeferStatement":
+        this.emit("try {");
+        this.emit("} finally {");
+        this.indent++;
+        this.emitBlock(stmt.body);
+        this.indent--;
+        this.emit("}");
+        break;
+
+      case "ExtensionDeclaration":
+        // Emit extension methods as standalone functions
+        for (const method of stmt.methods) {
+          const targetName =
+            stmt.targetType.kind === "NamedType"
+              ? stmt.targetType.name
+              : "__ext";
+          const params = ["__self", ...method.params.map((p) => p.name)].join(
+            ", ",
+          );
+          this.emit(`function __ext_${targetName}_${method.name}(${params}) {`);
+          this.indent++;
+          this.emitBlock(method.body);
+          this.indent--;
+          this.emit("}");
+        }
+        break;
     }
   }
 
@@ -686,33 +786,28 @@ export class CodeGenerator {
     for (let i = 0; i < arms.length; i++) {
       const arm = arms[i];
       const prefix = i === 0 ? "if" : "} else if";
-      const { condition, binding } = this.genMatchCondition(
+      const { condition, bindings } = this.genMatchCondition(
         tempVar,
         arm.pattern,
       );
 
-      if (arm.pattern.kind === "WildcardPattern") {
+      if (arm.pattern.kind === "WildcardPattern" && !arm.guard) {
         if (i === 0) {
           this.emit("{");
         } else {
           this.emit("} else {");
         }
+      } else if (arm.pattern.kind === "WildcardPattern" && arm.guard) {
+        const guardSuffix = ` && (${this.genExpr(arm.guard)})`;
+        this.emit(`${prefix} (true${guardSuffix}) {`);
       } else {
-        this.emit(`${prefix} (${condition}) {`);
+        const guardSuffix = arm.guard ? ` && (${this.genExpr(arm.guard)})` : "";
+        this.emit(`${prefix} (${condition}${guardSuffix}) {`);
       }
 
       this.indent++;
-      if (binding) {
-        this.emit(`const ${binding.name} = ${binding.value};`);
-      }
-      // Emit enum variant bindings
-      if (
-        arm.pattern.kind === "EnumVariantPattern" &&
-        arm.pattern.bindings.length > 0
-      ) {
-        for (const b of arm.pattern.bindings) {
-          this.emit(`const ${b} = ${tempVar}.${b};`);
-        }
+      for (const b of bindings) {
+        this.emit(`const ${b.name} = ${b.value};`);
       }
       if (arm.body.kind === "BlockStatement") {
         this.emitBlock(arm.body);
@@ -731,32 +826,89 @@ export class CodeGenerator {
     pattern: MatchArm["pattern"],
   ): {
     condition: string;
-    binding?: { name: string; value: string };
+    bindings: { name: string; value: string }[];
+  } {
+    return this.genMatchConditionInner(tempVar, pattern);
+  }
+
+  private genMatchConditionInner(
+    tempVar: string,
+    pattern: MatchArm["pattern"],
+  ): {
+    condition: string;
+    bindings: { name: string; value: string }[];
   } {
     switch (pattern.kind) {
-      case "OkPattern":
+      case "OkPattern": {
+        const inner = this.genMatchConditionInner(
+          `${tempVar}.value`,
+          pattern.inner,
+        );
         return {
-          condition: `${tempVar}.__tag === "Ok"`,
-          binding: { name: pattern.binding, value: `${tempVar}.value` },
+          condition: `${tempVar}.__tag === "Ok"${inner.condition !== "true" ? ` && ${inner.condition}` : ""}`,
+          bindings: inner.bindings,
         };
-      case "ErrPattern":
+      }
+      case "ErrPattern": {
+        const inner = this.genMatchConditionInner(
+          `${tempVar}.value`,
+          pattern.inner,
+        );
         return {
-          condition: `${tempVar}.__tag === "Err"`,
-          binding: { name: pattern.binding, value: `${tempVar}.value` },
+          condition: `${tempVar}.__tag === "Err"${inner.condition !== "true" ? ` && ${inner.condition}` : ""}`,
+          bindings: inner.bindings,
         };
+      }
       case "LiteralPattern":
-        return { condition: `${tempVar} === ${this.genExpr(pattern.value)}` };
+        return {
+          condition: `${tempVar} === ${this.genExpr(pattern.value)}`,
+          bindings: [],
+        };
       case "IdentifierPattern":
         return {
           condition: `true`,
-          binding: { name: pattern.name, value: tempVar },
+          bindings: [{ name: pattern.name, value: tempVar }],
         };
-      case "EnumVariantPattern":
+      case "BindingPattern": {
+        const inner = this.genMatchConditionInner(tempVar, pattern.pattern);
+        return {
+          condition: inner.condition,
+          bindings: [{ name: pattern.name, value: tempVar }, ...inner.bindings],
+        };
+      }
+      case "EnumVariantPattern": {
+        const allBindings: { name: string; value: string }[] = [];
+        for (let idx = 0; idx < pattern.bindings.length; idx++) {
+          const sub = pattern.bindings[idx];
+          // Extract field name from the binding pattern if it's an IdentifierPattern
+          const fieldAccess =
+            sub.kind === "IdentifierPattern"
+              ? `${tempVar}.${sub.name}`
+              : `${tempVar}.__field${idx}`;
+          const inner = this.genMatchConditionInner(fieldAccess, sub);
+          allBindings.push(...inner.bindings);
+        }
         return {
           condition: `${tempVar}.__tag === "${pattern.variant}"`,
+          bindings: allBindings,
         };
+      }
+      case "TuplePattern": {
+        const conditions: string[] = [];
+        const allBindings: { name: string; value: string }[] = [];
+        for (let idx = 0; idx < pattern.elements.length; idx++) {
+          const sub = pattern.elements[idx];
+          const inner = this.genMatchConditionInner(`${tempVar}[${idx}]`, sub);
+          if (inner.condition !== "true") conditions.push(inner.condition);
+          allBindings.push(...inner.bindings);
+        }
+        return {
+          condition: conditions.length > 0 ? conditions.join(" && ") : "true",
+          bindings: allBindings,
+        };
+      }
       case "WildcardPattern":
-        return { condition: "true" };
+        return { condition: "true", bindings: [] };
     }
   }
 
@@ -920,6 +1072,25 @@ export class CodeGenerator {
 
       case "ResultUnwrapExpr":
         return `__nk_unwrap(${this.genExpr(expr.expression)})`;
+
+      case "NamedArgExpr":
+        return this.genExpr(expr.value);
+
+      case "AwaitAllExpr": {
+        const exprs = expr.expressions.map((e) => this.genExpr(e)).join(", ");
+        return `await Promise.all([${exprs}])`;
+      }
+
+      case "AwaitRaceExpr": {
+        const exprs = expr.expressions.map((e) => this.genExpr(e)).join(", ");
+        return `await Promise.race([${exprs}])`;
+      }
+
+      case "SpawnExpr":
+        return `(async () => ${this.genExpr(expr.expression)})()`;
+
+      case "ChanExpr":
+        return `__nk_chan(${this.genExpr(expr.capacity)})`;
     }
   }
 
@@ -948,28 +1119,26 @@ export class CodeGenerator {
     let code = `(() => { const __m = ${subject}; `;
     for (let i = 0; i < expr.arms.length; i++) {
       const arm = expr.arms[i];
-      const { condition, binding } = this.genMatchCondition("__m", arm.pattern);
+      const { condition, bindings } = this.genMatchCondition(
+        "__m",
+        arm.pattern,
+      );
 
-      if (arm.pattern.kind === "WildcardPattern") {
+      if (arm.pattern.kind === "WildcardPattern" && !arm.guard) {
         if (i > 0) code += " else { ";
         else code += "{ ";
       } else {
-        code += i === 0 ? `if (${condition}) { ` : ` else if (${condition}) { `;
+        const guardSuffix = arm.guard ? ` && (${this.genExpr(arm.guard)})` : "";
+        code +=
+          i === 0
+            ? `if (${condition}${guardSuffix}) { `
+            : ` else if (${condition}${guardSuffix}) { `;
       }
 
-      if (binding) {
-        code += `const ${binding.name} = ${binding.value}; `;
-      }
-      if (
-        arm.pattern.kind === "EnumVariantPattern" &&
-        arm.pattern.bindings.length > 0
-      ) {
-        for (const b of arm.pattern.bindings) {
-          code += `const ${b} = __m.${b}; `;
-        }
+      for (const b of bindings) {
+        code += `const ${b.name} = ${b.value}; `;
       }
       if (arm.body.kind === "BlockStatement") {
-        // For block bodies in match expressions, wrap as needed
         const saved = this.output.length;
         this.emitBlock(arm.body);
         const inner = this.output.splice(saved).join("; ");
@@ -999,6 +1168,16 @@ export class CodeGenerator {
         return "Math";
       case "assert":
         return "__nk_assert";
+      case "regex":
+        return "__nk_regex";
+      case "time":
+        return "__nk_time";
+      case "crypto":
+        return "__nk_crypto";
+      case "path":
+        return "__nk_path";
+      case "env":
+        return "__nk_env";
       default:
         return name;
     }

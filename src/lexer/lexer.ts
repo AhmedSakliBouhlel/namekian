@@ -72,6 +72,30 @@ export class Lexer {
       const ch = this.peek();
       if (ch === " " || ch === "\t" || ch === "\r" || ch === "\n") {
         this.advance();
+      } else if (
+        ch === "/" &&
+        this.peekNext() === "/" &&
+        this.source[this.pos + 2] === "/"
+      ) {
+        // Doc comment ///
+        const docStart = this.pos;
+        const docLine = this.line;
+        const docCol = this.column;
+        const docOffset = docStart - 2; // account for already-skipped chars — use current pos
+        this.advance(); // first /
+        this.advance(); // second /
+        this.advance(); // third /
+        // skip optional leading space
+        if (this.pos < this.source.length && this.peek() === " ") {
+          this.advance();
+        }
+        let value = "";
+        while (this.pos < this.source.length && this.peek() !== "\n") {
+          value += this.advance();
+        }
+        this.tokens.push(
+          token(TokenType.DocComment, value, docLine, docCol - 2, docOffset),
+        );
       } else if (ch === "/" && this.peekNext() === "/") {
         // Line comment
         while (this.pos < this.source.length && this.peek() !== "\n") {
@@ -404,15 +428,18 @@ export class Lexer {
         if (this.match("&")) {
           this.addToken(TokenType.And, "&&", startLine, startCol, startOffset);
         } else {
-          this.diagnostics.push(
-            errorDiag(`Unexpected character '&'. Did you mean '&&'?`, {
-              file: this.file,
-              line: startLine,
-              column: startCol,
-              offset: startOffset,
-            }),
+          this.addToken(
+            TokenType.Ampersand,
+            "&",
+            startLine,
+            startCol,
+            startOffset,
           );
         }
+        break;
+
+      case "@":
+        this.addToken(TokenType.At, "@", startLine, startCol, startOffset);
         break;
 
       case "|":

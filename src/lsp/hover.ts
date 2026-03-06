@@ -101,6 +101,47 @@ export function findNodeAtOffset(
       case "ResultUnwrapExpr":
         visitExpr(expr.expression);
         break;
+      case "PipeExpr":
+        visitExpr(expr.left);
+        visitExpr(expr.right);
+        break;
+      case "RangeExpr":
+        visitExpr(expr.start);
+        visitExpr(expr.end);
+        break;
+      case "TupleLiteral":
+        for (const el of expr.elements) visitExpr(el);
+        break;
+      case "NullCoalesceExpr":
+        visitExpr(expr.left);
+        visitExpr(expr.right);
+        break;
+      case "ArrayComprehension":
+        visitExpr(expr.iterable);
+        visitExpr(expr.body);
+        if (expr.condition) visitExpr(expr.condition);
+        break;
+      case "MapLiteral":
+        for (const e of expr.entries) {
+          visitExpr(e.key);
+          visitExpr(e.value);
+        }
+        break;
+      case "NamedArgExpr":
+        visitExpr(expr.value);
+        break;
+      case "AwaitAllExpr":
+        for (const e of expr.expressions) visitExpr(e);
+        break;
+      case "AwaitRaceExpr":
+        for (const e of expr.expressions) visitExpr(e);
+        break;
+      case "SpawnExpr":
+        visitExpr(expr.expression);
+        break;
+      case "ChanExpr":
+        visitExpr(expr.capacity);
+        break;
     }
   }
 
@@ -162,6 +203,12 @@ export function findNodeAtOffset(
         break;
       case "DestructureDeclaration":
         visitExpr(stmt.initializer);
+        break;
+      case "DeferStatement":
+        visitStmt(stmt.body);
+        break;
+      case "ExtensionDeclaration":
+        for (const m of stmt.methods) visitStmt(m.body);
         break;
     }
   }

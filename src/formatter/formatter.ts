@@ -39,7 +39,7 @@ export class Formatter {
 
   // --- Type Annotations ---
 
-  private fmtType(ann: TypeAnnotation): string {
+  fmtType(ann: TypeAnnotation): string {
     switch (ann.kind) {
       case "NamedType":
         return ann.name;
@@ -61,6 +61,12 @@ export class Formatter {
       }
       case "UnionType":
         return ann.types.map((t) => this.fmtType(t)).join(" | ");
+      case "LiteralType": {
+        if (typeof ann.value === "string") return `"${ann.value}"`;
+        return String(ann.value);
+      }
+      case "IntersectionType":
+        return ann.types.map((t) => this.fmtType(t)).join(" & ");
     }
   }
 
@@ -99,7 +105,11 @@ export class Formatter {
             ? `<${stmt.typeParams.map((tp) => (tp.constraint ? `${tp.name} : ${this.fmtType(tp.constraint)}` : tp.name)).join(", ")}>`
             : "";
         const params = this.fmtParams(stmt.params);
-        this.emit(`${ret} ${stmt.name}${typeParams}(${params}) {`);
+        if (stmt.returnType) {
+          this.emit(`${ret} ${stmt.name}${typeParams}(${params}) {`);
+        } else {
+          this.emit(`${stmt.name}${typeParams}(${params}) {`);
+        }
         this.indent++;
         this.formatBlock(stmt.body);
         this.indent--;
@@ -352,6 +362,30 @@ export class Formatter {
         this.indent--;
         this.emit("}");
         break;
+
+      case "DeferStatement":
+        this.emit("defer {");
+        this.indent++;
+        this.formatBlock(stmt.body);
+        this.indent--;
+        this.emit("}");
+        break;
+
+      case "ExtensionDeclaration":
+        this.emit(`extend ${this.fmtType(stmt.targetType)} {`);
+        this.indent++;
+        for (const m of stmt.methods) {
+          const ret = m.returnType ? this.fmtType(m.returnType) : "void";
+          const params = this.fmtParams(m.params);
+          this.emit(`${ret} ${m.name}(${params}) {`);
+          this.indent++;
+          this.formatBlock(m.body);
+          this.indent--;
+          this.emit("}");
+        }
+        this.indent--;
+        this.emit("}");
+        break;
     }
   }
 
@@ -390,23 +424,24 @@ export class Formatter {
 
   private formatMatchArm(arm: MatchArm): void {
     const pattern = this.fmtMatchPattern(arm.pattern);
+    const guard = arm.guard ? ` if ${this.fmtExpr(arm.guard)}` : "";
     if (arm.body.kind === "BlockStatement") {
-      this.emit(`${pattern} => {`);
+      this.emit(`${pattern}${guard} => {`);
       this.indent++;
       this.formatBlock(arm.body);
       this.indent--;
       this.emit("}");
     } else {
-      this.emit(`${pattern} => ${this.fmtExpr(arm.body)}`);
+      this.emit(`${pattern}${guard} => ${this.fmtExpr(arm.body)}`);
     }
   }
 
   private fmtMatchPattern(pattern: MatchArm["pattern"]): string {
     switch (pattern.kind) {
       case "OkPattern":
-        return `Ok(${pattern.binding})`;
+        return `Ok(${this.fmtMatchPattern(pattern.inner)})`;
       case "ErrPattern":
-        return `Err(${pattern.binding})`;
+        return `Err(${this.fmtMatchPattern(pattern.inner)})`;
       case "LiteralPattern":
         return this.fmtExpr(pattern.value);
       case "WildcardPattern":
@@ -415,9 +450,19 @@ export class Formatter {
         return pattern.name;
       case "EnumVariantPattern": {
         const bindings =
-          pattern.bindings.length > 0 ? `(${pattern.bindings.join(", ")})` : "";
+          pattern.bindings.length > 0
+            ? `(${pattern.bindings.map((b) => this.fmtMatchPattern(b)).join(", ")})`
+            : "";
         return `${pattern.enumName}.${pattern.variant}${bindings}`;
       }
+      case "TuplePattern": {
+        const elems = pattern.elements
+          .map((e) => this.fmtMatchPattern(e))
+          .join(", ");
+        return `(${elems})`;
+      }
+      case "BindingPattern":
+        return `${pattern.name} @ ${this.fmtMatchPattern(pattern.pattern)}`;
     }
   }
 
@@ -499,14 +544,14 @@ export class Formatter {
         return `Err(${this.fmtExpr(expr.value)})`;
 
       case "MatchExpr": {
-        // Inline match expressions keep them compact
         const subject = this.fmtExpr(expr.subject);
         let code = `match (${subject}) {\n`;
         this.indent++;
         for (const arm of expr.arms) {
           const pattern = this.fmtMatchPattern(arm.pattern);
+          const guard = arm.guard ? ` if ${this.fmtExpr(arm.guard)}` : "";
           if (arm.body.kind === "BlockStatement") {
-            code += "  ".repeat(this.indent) + `${pattern} => {\n`;
+            code += "  ".repeat(this.indent) + `${pattern}${guard} => {\n`;
             this.indent++;
             const saved = this.output.length;
             this.formatBlock(arm.body);
@@ -516,7 +561,7 @@ export class Formatter {
           } else {
             code +=
               "  ".repeat(this.indent) +
-              `${pattern} => ${this.fmtExpr(arm.body)}\n`;
+              `${pattern}${guard} => ${this.fmtExpr(arm.body)}\n`;
           }
         }
         this.indent--;
@@ -593,6 +638,25 @@ export class Formatter {
       case "ResultUnwrapExpr":
         return `${this.fmtExpr(expr.expression)}?`;
 
+      case "NamedArgExpr":
+        return `${expr.name}: ${this.fmtExpr(expr.value)}`;
+
+      case "AwaitAllExpr": {
+        const exprs = expr.expressions.map((e) => this.fmtExpr(e)).join(", ");
+        return `await all [${exprs}]`;
+      }
+
+      case "AwaitRaceExpr": {
+        const exprs = expr.expressions.map((e) => this.fmtExpr(e)).join(", ");
+        return `await race [${exprs}]`;
+      }
+
+      case "SpawnExpr":
+        return `spawn ${this.fmtExpr(expr.expression)}`;
+
+      case "ChanExpr":
+        return `chan<${this.fmtType(expr.elementType)}>(${this.fmtExpr(expr.capacity)})`;
+
       default:
         return "/* unknown */";
     }
@@ -606,6 +670,7 @@ function isDeclaration(stmt: Statement): boolean {
     stmt.kind === "ClassDeclaration" ||
     stmt.kind === "InterfaceDeclaration" ||
     stmt.kind === "EnumDeclaration" ||
-    stmt.kind === "DeclareModuleStatement"
+    stmt.kind === "DeclareModuleStatement" ||
+    stmt.kind === "ExtensionDeclaration"
   );
 }
