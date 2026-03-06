@@ -17,7 +17,8 @@ export type NkType =
   | NkEnum
   | NkTuple
   | NkTypeVar
-  | NkModule;
+  | NkModule
+  | NkUnion;
 
 export interface NkInt {
   tag: "int";
@@ -116,6 +117,11 @@ export interface NkModule {
   members: Map<string, NkType>;
 }
 
+export interface NkUnion {
+  tag: "union";
+  types: NkType[];
+}
+
 // Singleton types
 export const NK_INT: NkInt = { tag: "int" };
 export const NK_FLOAT: NkFloat = { tag: "float" };
@@ -169,12 +175,22 @@ export function typeToString(t: NkType): string {
       return t.name;
     case "module":
       return `module "${t.name}"`;
+    case "union":
+      return t.types.map(typeToString).join(" | ");
   }
 }
 
 export function isAssignable(target: NkType, source: NkType): boolean {
   if (target.tag === "any" || source.tag === "any") return true;
   if (target.tag === "typevar" || source.tag === "typevar") return true;
+  // Source is union: all members must be assignable to target
+  if (source.tag === "union") {
+    return source.types.every((m) => isAssignable(target, m));
+  }
+  // Target is union: source must be assignable to at least one member
+  if (target.tag === "union") {
+    return target.types.some((m) => isAssignable(m, source));
+  }
   if (target.tag === source.tag) {
     if (target.tag === "array" && source.tag === "array") {
       return isAssignable(target.elementType, source.elementType);

@@ -419,4 +419,46 @@ describe("Lexer", () => {
       "Unterminated triple-quoted string",
     );
   });
+
+  // --- Union type: Bar token ---
+
+  it("tokenizes | as Bar token", () => {
+    const types = tokenTypes("int | string");
+    expect(types).toEqual([
+      TokenType.Int,
+      TokenType.Bar,
+      TokenType.String,
+      TokenType.EOF,
+    ]);
+  });
+
+  it("still tokenizes || as Or and |> as PipeArrow", () => {
+    expect(tokenTypes("a || b")).toContain(TokenType.Or);
+    expect(tokenTypes("a |> b")).toContain(TokenType.PipeArrow);
+  });
+
+  // --- is keyword ---
+
+  it("tokenizes is as Is keyword", () => {
+    const types = tokenTypes("x is string");
+    expect(types).toEqual([
+      TokenType.Identifier,
+      TokenType.Is,
+      TokenType.String,
+      TokenType.EOF,
+    ]);
+  });
+
+  // --- await keyword ---
+
+  it("tokenizes await as Await keyword", () => {
+    const types = tokenTypes("await foo()");
+    expect(types).toEqual([
+      TokenType.Await,
+      TokenType.Identifier,
+      TokenType.LeftParen,
+      TokenType.RightParen,
+      TokenType.EOF,
+    ]);
+  });
 });

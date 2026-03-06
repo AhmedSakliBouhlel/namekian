@@ -14,6 +14,7 @@ import {
   NK_FS_RUNTIME,
   NK_STREAM_RUNTIME,
   NK_ASSERT_RUNTIME,
+  NK_UNWRAP_RUNTIME,
 } from "./js-runtime.js";
 import { SourceMapGenerator } from "./source-map.js";
 
@@ -27,6 +28,7 @@ export class CodeGenerator {
   private usesFs = false;
   private usesStream = false;
   private usesAssert = false;
+  private usesResultUnwrap = false;
   private asyncFunctions = new Set<string>();
   private projectMode = false;
   private trackSourceMap = false;
@@ -47,6 +49,7 @@ export class CodeGenerator {
     if (this.usesFs) preamble.push(NK_FS_RUNTIME);
     if (this.usesStream) preamble.push(NK_STREAM_RUNTIME);
     if (this.usesAssert) preamble.push(NK_ASSERT_RUNTIME);
+    if (this.usesResultUnwrap) preamble.push(NK_UNWRAP_RUNTIME);
 
     // Second pass: generate code
     for (const stmt of program.body) {
@@ -75,6 +78,7 @@ export class CodeGenerator {
     this.usesFs = false;
     this.usesStream = false;
     this.usesAssert = false;
+    this.usesResultUnwrap = false;
     this.asyncFunctions = new Set<string>();
     this.sourceMapGen = new SourceMapGenerator();
     this._pendingMappings = [];
@@ -92,6 +96,7 @@ export class CodeGenerator {
     if (this.usesFs) preamble.push(NK_FS_RUNTIME);
     if (this.usesStream) preamble.push(NK_STREAM_RUNTIME);
     if (this.usesAssert) preamble.push(NK_ASSERT_RUNTIME);
+    if (this.usesResultUnwrap) preamble.push(NK_UNWRAP_RUNTIME);
 
     // Account for preamble lines in the output offset
     let preambleLineCount = 0;
@@ -182,6 +187,10 @@ export class CodeGenerator {
     }
     if (source.includes('"assert"')) {
       this.usesAssert = true;
+    }
+    if (source.includes('"ResultUnwrapExpr"')) {
+      this.usesResultUnwrap = true;
+      this.usesResult = true;
     }
     // Detect async: functions calling http.get/post etc.
     this.detectAsync(program);
@@ -329,6 +338,12 @@ export class CodeGenerator {
             ? this.exprCallsAsync(expr.condition, asyncCallees)
             : false)
         );
+      case "TypeGuardExpr":
+        return this.exprCallsAsync(expr.expression, asyncCallees);
+      case "AwaitExpr":
+        return true;
+      case "ResultUnwrapExpr":
+        return this.exprCallsAsync(expr.expression, asyncCallees);
       default:
         return false;
     }
@@ -377,11 +392,27 @@ export class CodeGenerator {
         const exportPrefix =
           this.projectMode && this.indent === 0 ? "export " : "";
         const params = this.genParams(stmt.params);
+        const hasUnwrap =
+          this.usesResultUnwrap &&
+          JSON.stringify(stmt.body).includes('"ResultUnwrapExpr"');
         this.emit(
           `${exportPrefix}${asyncPrefix}function ${stmt.name}(${params}) {`,
         );
         this.indent++;
-        this.emitBlock(stmt.body);
+        if (hasUnwrap) {
+          this.emit("try {");
+          this.indent++;
+          this.emitBlock(stmt.body);
+          this.indent--;
+          this.emit("} catch (__e) {");
+          this.indent++;
+          this.emit("if (__e instanceof __NkResultError) return __e.result;");
+          this.emit("throw __e;");
+          this.indent--;
+          this.emit("}");
+        } else {
+          this.emitBlock(stmt.body);
+        }
         this.indent--;
         this.emit("}");
         break;
@@ -877,7 +908,39 @@ export class CodeGenerator {
         }
         return `${iter}.map((${v}) => ${body})`;
       }
+
+      case "TypeGuardExpr":
+        return this.genTypeGuardCheck(
+          this.genExpr(expr.expression),
+          expr.guardType,
+        );
+
+      case "AwaitExpr":
+        return `await ${this.genExpr(expr.argument)}`;
+
+      case "ResultUnwrapExpr":
+        return `__nk_unwrap(${this.genExpr(expr.expression)})`;
     }
+  }
+
+  private genTypeGuardCheck(
+    exprCode: string,
+    guardType: import("../parser/ast.js").TypeAnnotation,
+  ): string {
+    if (guardType.kind === "NamedType") {
+      switch (guardType.name) {
+        case "string":
+          return `typeof ${exprCode} === "string"`;
+        case "int":
+        case "float":
+          return `typeof ${exprCode} === "number"`;
+        case "bool":
+          return `typeof ${exprCode} === "boolean"`;
+        default:
+          return `${exprCode} instanceof ${guardType.name}`;
+      }
+    }
+    return `true`;
   }
 
   private genMatchExpr(expr: Expression & { kind: "MatchExpr" }): string {

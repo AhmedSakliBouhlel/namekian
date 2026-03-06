@@ -11,7 +11,8 @@ export type TypeAnnotation =
   | NullableType
   | GenericType
   | FunctionType
-  | TupleType;
+  | TupleType
+  | UnionType;
 
 export interface NamedType {
   kind: "NamedType";
@@ -51,6 +52,12 @@ export interface TupleType {
   span: SourceSpan;
 }
 
+export interface UnionType {
+  kind: "UnionType";
+  types: TypeAnnotation[];
+  span: SourceSpan;
+}
+
 // Expressions
 export type Expression =
   | IntLiteralExpr
@@ -82,7 +89,10 @@ export type Expression =
   | RangeExpr
   | TupleLiteralExpr
   | NullCoalesceExpr
-  | ArrayComprehensionExpr;
+  | ArrayComprehensionExpr
+  | TypeGuardExpr
+  | AwaitExpr
+  | ResultUnwrapExpr;
 
 export interface IntLiteralExpr {
   kind: "IntLiteral";
@@ -236,6 +246,25 @@ export interface ArrayComprehensionExpr {
   span: SourceSpan;
 }
 
+export interface TypeGuardExpr {
+  kind: "TypeGuardExpr";
+  expression: Expression;
+  guardType: TypeAnnotation;
+  span: SourceSpan;
+}
+
+export interface AwaitExpr {
+  kind: "AwaitExpr";
+  argument: Expression;
+  span: SourceSpan;
+}
+
+export interface ResultUnwrapExpr {
+  kind: "ResultUnwrapExpr";
+  expression: Expression;
+  span: SourceSpan;
+}
+
 export interface ArrowFunctionExpr {
   kind: "ArrowFunction";
   params: Parameter[];
@@ -307,6 +336,12 @@ export type MatchPattern =
       span: SourceSpan;
     };
 
+// Type parameters
+export interface TypeParam {
+  name: string;
+  constraint?: TypeAnnotation;
+}
+
 // Parameters
 export interface Parameter {
   name: string;
@@ -352,7 +387,7 @@ export interface VariableDeclaration {
 export interface FunctionDeclaration {
   kind: "FunctionDeclaration";
   name: string;
-  typeParams: string[];
+  typeParams: TypeParam[];
   params: Parameter[];
   returnType?: TypeAnnotation;
   body: BlockStatement;
@@ -418,7 +453,7 @@ export interface StructField {
 export interface StructDeclaration {
   kind: "StructDeclaration";
   name: string;
-  typeParams: string[];
+  typeParams: TypeParam[];
   fields: StructField[];
   methods: FunctionDeclaration[];
   span: SourceSpan;
@@ -427,7 +462,7 @@ export interface StructDeclaration {
 export interface ClassDeclaration {
   kind: "ClassDeclaration";
   name: string;
-  typeParams: string[];
+  typeParams: TypeParam[];
   superClass?: string;
   interfaces: string[];
   fields: StructField[];

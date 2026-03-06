@@ -648,4 +648,110 @@ describe("TypeChecker", () => {
       m.greet("hello");
     `);
   });
+
+  // --- Union types ---
+
+  it("accepts int | string with int value", () => {
+    expectNoErrors("int | string x = 42;");
+  });
+
+  it("accepts int | string with string value", () => {
+    expectNoErrors('int | string x = "hello";');
+  });
+
+  it("rejects value not in union", () => {
+    expectError("int | string x = true;", "not assignable");
+  });
+
+  it("union assignability both directions", () => {
+    expectNoErrors(`
+      int | string x = 42;
+      int | string | bool y = x;
+    `);
+  });
+
+  // --- Type guards ---
+
+  it("type guard returns bool", () => {
+    expectNoErrors(`
+      var x = 42;
+      var b = x is int;
+    `);
+  });
+
+  it("type guard narrows in if block", () => {
+    expectNoErrors(`
+      int | string x = 42;
+      if (x is string) {
+        var len = x.length;
+      }
+    `);
+  });
+
+  // --- Async/await ---
+
+  it("await expression type equals argument type", () => {
+    expectNoErrors(`
+      void foo() { print(1); }
+      var x = await foo();
+    `);
+  });
+
+  // --- Result unwrap ? ---
+
+  it("? on Result type yields ok type", () => {
+    expectNoErrors(`
+      Result<int, string> getValue() { return Ok(5); }
+      int process() {
+        var x = getValue()?;
+        return x;
+      }
+    `);
+  });
+
+  it("? on non-Result errors", () => {
+    expectError("int x = 5; var y = x?;", "requires a Result type");
+  });
+
+  it("? on any passes", () => {
+    expectNoErrors(`
+      any foo() { return Ok(1); }
+      var x = foo()?;
+    `);
+  });
+
+  // --- Generic constraints ---
+
+  it("accepts unconstrained generic (backward compat)", () => {
+    expectNoErrors("T identity<T>(T v) { return v; }");
+  });
+
+  it("accepts generic with constraint syntax", () => {
+    expectNoErrors(`
+      interface Printable { string toString(); }
+      T show<T : Printable>(T v) { return v; }
+    `);
+  });
+
+  // --- Union type in variable return ---
+
+  it("accepts union type variable assigned from function", () => {
+    expectNoErrors(`
+      int | string x = 42;
+      int | string y = "hi";
+      print(x);
+      print(y);
+    `);
+  });
+
+  // --- Type guard with union ---
+
+  it("type guard works with union types", () => {
+    expectNoErrors(`
+      int | string x = "hello";
+      if (x is string) {
+        var len = x.length;
+      }
+    `);
+  });
 });

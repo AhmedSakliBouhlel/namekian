@@ -441,4 +441,68 @@ describe("CodeGenerator", () => {
     expect(js).toContain('import express from "express"');
     expect(js).not.toContain("declare");
   });
+
+  // --- Type guard codegen ---
+
+  it("generates typeof check for x is string", () => {
+    const js = gen("var b = x is string;");
+    expect(js).toContain('typeof x === "string"');
+  });
+
+  it("generates typeof check for x is int", () => {
+    const js = gen("var b = x is int;");
+    expect(js).toContain('typeof x === "number"');
+  });
+
+  it("generates typeof check for x is bool", () => {
+    const js = gen("var b = x is bool;");
+    expect(js).toContain('typeof x === "boolean"');
+  });
+
+  it("generates instanceof for x is MyStruct", () => {
+    const js = gen("var b = x is MyStruct;");
+    expect(js).toContain("x instanceof MyStruct");
+  });
+
+  // --- Await codegen ---
+
+  it("generates await expression", () => {
+    const js = gen("var x = await foo();");
+    expect(js).toContain("await foo()");
+  });
+
+  it("await in function makes it async", () => {
+    const js = gen(`
+      void loadData() {
+        var x = await fetch();
+      }
+    `);
+    expect(js).toContain("async function loadData");
+  });
+
+  // --- Result unwrap ? codegen ---
+
+  it("generates __nk_unwrap for ? operator", () => {
+    const js = gen("var x = getValue()?;");
+    expect(js).toContain("__nk_unwrap(getValue())");
+    expect(js).toContain("function __nk_unwrap");
+  });
+
+  it("function with ? gets try/catch wrapper", () => {
+    const js = gen(`
+      int process() {
+        var x = getValue()?;
+        return x;
+      }
+    `);
+    expect(js).toContain("try {");
+    expect(js).toContain("__NkResultError");
+  });
+
+  // --- Union type in function param (erased in codegen) ---
+
+  it("generates generic function with constraint (erased)", () => {
+    const js = gen("T sort<T : Comparable>(T value) { return value; }");
+    expect(js).toContain("function sort(value)");
+  });
 });

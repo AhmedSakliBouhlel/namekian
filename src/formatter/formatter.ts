@@ -59,6 +59,8 @@ export class Formatter {
         const elems = ann.elements.map((e) => this.fmtType(e)).join(", ");
         return `(${elems})`;
       }
+      case "UnionType":
+        return ann.types.map((t) => this.fmtType(t)).join(" | ");
     }
   }
 
@@ -93,7 +95,9 @@ export class Formatter {
       case "FunctionDeclaration": {
         const ret = stmt.returnType ? this.fmtType(stmt.returnType) : "void";
         const typeParams =
-          stmt.typeParams.length > 0 ? `<${stmt.typeParams.join(", ")}>` : "";
+          stmt.typeParams.length > 0
+            ? `<${stmt.typeParams.map((tp) => (tp.constraint ? `${tp.name} : ${this.fmtType(tp.constraint)}` : tp.name)).join(", ")}>`
+            : "";
         const params = this.fmtParams(stmt.params);
         this.emit(`${ret} ${stmt.name}${typeParams}(${params}) {`);
         this.indent++;
@@ -179,7 +183,9 @@ export class Formatter {
 
       case "StructDeclaration": {
         const typeParams =
-          stmt.typeParams.length > 0 ? `<${stmt.typeParams.join(", ")}>` : "";
+          stmt.typeParams.length > 0
+            ? `<${stmt.typeParams.map((tp) => (tp.constraint ? `${tp.name} : ${this.fmtType(tp.constraint)}` : tp.name)).join(", ")}>`
+            : "";
         this.emit(`struct ${stmt.name}${typeParams} {`);
         this.indent++;
         for (const f of stmt.fields) {
@@ -204,7 +210,9 @@ export class Formatter {
 
       case "ClassDeclaration": {
         const typeParams =
-          stmt.typeParams.length > 0 ? `<${stmt.typeParams.join(", ")}>` : "";
+          stmt.typeParams.length > 0
+            ? `<${stmt.typeParams.map((tp) => (tp.constraint ? `${tp.name} : ${this.fmtType(tp.constraint)}` : tp.name)).join(", ")}>`
+            : "";
         const ext = stmt.superClass ? ` : ${stmt.superClass}` : "";
         const ifaces =
           stmt.interfaces.length > 0
@@ -575,6 +583,15 @@ export class Formatter {
         }
         return `[${body} for (${expr.variable} in ${iter})]`;
       }
+
+      case "TypeGuardExpr":
+        return `${this.fmtExpr(expr.expression)} is ${this.fmtType(expr.guardType)}`;
+
+      case "AwaitExpr":
+        return `await ${this.fmtExpr(expr.argument)}`;
+
+      case "ResultUnwrapExpr":
+        return `${this.fmtExpr(expr.expression)}?`;
 
       default:
         return "/* unknown */";

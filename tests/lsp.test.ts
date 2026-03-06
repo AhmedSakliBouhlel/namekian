@@ -10,6 +10,7 @@ import { findNodeAtOffset } from "../src/lsp/hover.js";
 import { getCompletions } from "../src/lsp/completions.js";
 import { buildSymbolIndex } from "../src/lsp/symbol-index.js";
 import { getDefinition } from "../src/lsp/definition.js";
+import { getReferences } from "../src/lsp/references.js";
 import { Diagnostic } from "../src/errors/diagnostic.js";
 
 // ---------------------------------------------------------------------------
@@ -711,5 +712,54 @@ describe("definition: getDefinition", () => {
     const uri = "file:///project/src/main.nk";
     const def = getDefinition(ast, source, 19, uri);
     expect(def?.uri).toBe(uri);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// references: getReferences
+// ---------------------------------------------------------------------------
+
+describe("references: getReferences", () => {
+  it("finds all references to a variable used multiple times", () => {
+    const source = "int x = 5; int y = x; int z = x;";
+    const result = compile(source, "<test>", { noCheck: true });
+    const ast = result.ast!;
+    // Use offset of 'x' in expression position (first reference)
+    const xRef = source.indexOf("x;");
+    const refs = getReferences(ast, source, xRef, "file:///test.nk");
+    // x declaration + two references = 3 locations
+    expect(refs.length).toBe(3);
+  });
+
+  it("finds references to a function called in multiple places", () => {
+    const source =
+      "int add(int a, int b) { return a + b; } add(1, 2); add(3, 4);";
+    const result = compile(source, "<test>", { noCheck: true });
+    const ast = result.ast!;
+    // Use offset of 'add' in call position
+    const callOffset = source.indexOf("add(1");
+    const refs = getReferences(ast, source, callOffset, "file:///test.nk");
+    // 'add' declared once + called twice = 3
+    expect(refs.length).toBe(3);
+  });
+
+  it("returns empty for unknown symbol", () => {
+    const source = "int x = 5;";
+    const result = compile(source, "<test>", { noCheck: true });
+    const ast = result.ast!;
+    // offset 8 is '5', an IntLiteral, not an Identifier
+    const refs = getReferences(ast, source, 8, "file:///test.nk");
+    expect(refs).toEqual([]);
+  });
+
+  it("includes declaration in references", () => {
+    const source = "int x = 5; print(x);";
+    const result = compile(source, "<test>", { noCheck: true });
+    const ast = result.ast!;
+    // Use offset of 'x' in expression position inside print(x)
+    const xRef = source.lastIndexOf("x");
+    const refs = getReferences(ast, source, xRef, "file:///test.nk");
+    // Should include declaration site + reference
+    expect(refs.length).toBeGreaterThanOrEqual(2);
   });
 });

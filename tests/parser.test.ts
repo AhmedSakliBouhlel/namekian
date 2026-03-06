@@ -423,7 +423,7 @@ describe("Parser", () => {
     expect(stmt.kind).toBe("FunctionDeclaration");
     if (stmt.kind === "FunctionDeclaration") {
       expect(stmt.name).toBe("identity");
-      expect(stmt.typeParams).toEqual(["T"]);
+      expect(stmt.typeParams).toEqual([{ name: "T" }]);
       expect(stmt.params[0].name).toBe("value");
     }
   });
@@ -433,7 +433,7 @@ describe("Parser", () => {
     expect(stmt.kind).toBe("StructDeclaration");
     if (stmt.kind === "StructDeclaration") {
       expect(stmt.name).toBe("Box");
-      expect(stmt.typeParams).toEqual(["T"]);
+      expect(stmt.typeParams).toEqual([{ name: "T" }]);
       expect(stmt.fields[0].name).toBe("value");
     }
   });
@@ -792,6 +792,139 @@ describe("Parser", () => {
       if (stmt.declarations[2].kind === "DeclareVariableStatement") {
         expect(stmt.declarations[2].name).toBe("timeout");
       }
+    }
+  });
+
+  // --- Union types ---
+
+  it("parses int | string as UnionType", () => {
+    const stmt = parseFirst("int | string x = 42;");
+    if (stmt.kind === "VariableDeclaration") {
+      expect(stmt.type?.kind).toBe("UnionType");
+      if (stmt.type?.kind === "UnionType") {
+        expect(stmt.type.types.length).toBe(2);
+        expect(stmt.type.types[0]).toMatchObject({
+          kind: "NamedType",
+          name: "int",
+        });
+        expect(stmt.type.types[1]).toMatchObject({
+          kind: "NamedType",
+          name: "string",
+        });
+      }
+    }
+  });
+
+  it("parses three-member union type", () => {
+    const stmt = parseFirst("int | string | bool x = 42;");
+    if (stmt.kind === "VariableDeclaration") {
+      expect(stmt.type?.kind).toBe("UnionType");
+      if (stmt.type?.kind === "UnionType") {
+        expect(stmt.type.types.length).toBe(3);
+      }
+    }
+  });
+
+  it("parses int[] | string union", () => {
+    const stmt = parseFirst("int[] | string x = [1];");
+    if (stmt.kind === "VariableDeclaration") {
+      expect(stmt.type?.kind).toBe("UnionType");
+      if (stmt.type?.kind === "UnionType") {
+        expect(stmt.type.types[0]).toMatchObject({ kind: "ArrayType" });
+        expect(stmt.type.types[1]).toMatchObject({
+          kind: "NamedType",
+          name: "string",
+        });
+      }
+    }
+  });
+
+  // --- Type guards ---
+
+  it("parses x is string as TypeGuardExpr", () => {
+    const stmt = parseFirst("var b = x is string;");
+    if (stmt.kind === "VariableDeclaration") {
+      expect(stmt.initializer.kind).toBe("TypeGuardExpr");
+      if (stmt.initializer.kind === "TypeGuardExpr") {
+        expect(stmt.initializer.expression).toMatchObject({
+          kind: "Identifier",
+          name: "x",
+        });
+        expect(stmt.initializer.guardType).toMatchObject({
+          kind: "NamedType",
+          name: "string",
+        });
+      }
+    }
+  });
+
+  // --- Await ---
+
+  it("parses await expression", () => {
+    const stmt = parseFirst("var x = await foo();");
+    if (stmt.kind === "VariableDeclaration") {
+      expect(stmt.initializer.kind).toBe("AwaitExpr");
+      if (stmt.initializer.kind === "AwaitExpr") {
+        expect(stmt.initializer.argument.kind).toBe("CallExpr");
+      }
+    }
+  });
+
+  // --- Result unwrap ? ---
+
+  it("parses postfix ? as ResultUnwrapExpr", () => {
+    const stmt = parseFirst("var x = getValue();");
+    // This is just a call. Now test with ?
+    const stmt2 = parseFirst("var x = getValue()?;");
+    if (stmt2.kind === "VariableDeclaration") {
+      expect(stmt2.initializer.kind).toBe("ResultUnwrapExpr");
+      if (stmt2.initializer.kind === "ResultUnwrapExpr") {
+        expect(stmt2.initializer.expression.kind).toBe("CallExpr");
+      }
+    }
+  });
+
+  it("ternary still works with ? operator", () => {
+    const stmt = parseFirst("var x = a ? 1 : 0;");
+    if (stmt.kind === "VariableDeclaration") {
+      expect(stmt.initializer.kind).toBe("TernaryExpr");
+    }
+  });
+
+  // --- Generic constraints ---
+
+  it("parses generic constraint <T : Comparable>", () => {
+    const stmt = parseFirst(
+      "T sort<T : Comparable>(T[] items) { return items; }",
+    );
+    expect(stmt.kind).toBe("FunctionDeclaration");
+    if (stmt.kind === "FunctionDeclaration") {
+      expect(stmt.typeParams.length).toBe(1);
+      expect(stmt.typeParams[0].name).toBe("T");
+      expect(stmt.typeParams[0].constraint).toMatchObject({
+        kind: "NamedType",
+        name: "Comparable",
+      });
+    }
+  });
+
+  it("parses unconstrained generic still works", () => {
+    const stmt = parseFirst("T identity<T>(T value) { return value; }");
+    expect(stmt.kind).toBe("FunctionDeclaration");
+    if (stmt.kind === "FunctionDeclaration") {
+      expect(stmt.typeParams).toEqual([{ name: "T" }]);
+    }
+  });
+
+  it("parses mixed constrained and unconstrained type params", () => {
+    const stmt = parseFirst("T wrap<T : Printable, U>(T a, U b) { return a; }");
+    expect(stmt.kind).toBe("FunctionDeclaration");
+    if (stmt.kind === "FunctionDeclaration") {
+      expect(stmt.typeParams.length).toBe(2);
+      expect(stmt.typeParams[0].name).toBe("T");
+      expect(stmt.typeParams[0].constraint).toBeDefined();
+      expect(stmt.typeParams[1].name).toBe("U");
+      expect(stmt.typeParams[1].constraint).toBeUndefined();
     }
   });
 

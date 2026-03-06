@@ -60,6 +60,14 @@ function __nk_assert(cond, msg) {
 }
 `.trim();
 
+export const NK_UNWRAP_RUNTIME = `
+class __NkResultError { constructor(result) { this.result = result; } }
+function __nk_unwrap(result) {
+  if (result.__tag === "Err") throw new __NkResultError(result);
+  return result.value;
+}
+`.trim();
+
 export const NK_STREAM_RUNTIME = `
 const __nk_stream = await (async () => {
   const fs = await import("node:fs");

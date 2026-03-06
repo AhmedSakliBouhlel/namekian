@@ -427,14 +427,7 @@ export class Lexer {
             startOffset,
           );
         } else {
-          this.diagnostics.push(
-            errorDiag(`Unexpected character '|'. Did you mean '||' or '|>'?`, {
-              file: this.file,
-              line: startLine,
-              column: startCol,
-              offset: startOffset,
-            }),
-          );
+          this.addToken(TokenType.Bar, "|", startLine, startCol, startOffset);
         }
         break;
 
