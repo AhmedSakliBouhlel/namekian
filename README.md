@@ -30,13 +30,16 @@ print(result); // 7
 - **Tuple types** — `(int, string) pair = (1, "hello");` with type annotations
 - **Range expressions** — `0..10` (exclusive) and `0..=10` (inclusive) generate arrays
 - **Async/await** — explicit `await` keyword, plus implicit async propagation for `http` and `fs` calls
-- **Module system** — `take { X } from "./path"` and `load "package"` with cross-file type checking
+- **Module system** — `take { X } from "./path"`, `take { X as Y }` aliasing, and `load "package"` with cross-file type checking
 - **Type declarations** — `declare module "pkg" { ... }` and `.nkd` files give npm packages proper types
 - **Type narrowing** — `T?` is narrowed to `T` inside `if (x != null)` blocks
 - **Linter warnings** — unreachable code after return/break/continue, unused variables, variable shadowing
 - **Destructuring** — `var { x, y } = point;`, `var [a, b] = arr;`, and `var (a, b) = tuple;`
 - **Spread operator** — `[1, ...rest]` and `print(...args)`
-- **For..in loops** — `for (item in list)` iterates over arrays
+- **Variadic parameters** — `void log(...string items)` for rest parameters
+- **`throw` statement** — `throw "error"` for throwing exceptions
+- **`do..while` loop** — `do { ... } while (cond);` executes body before checking condition
+- **For..in loops** — `for (item in list)` iterates over arrays, strings, and maps with type narrowing
 - **Compound assignments** — `+=`, `-=`, `*=`, `/=`, `%=`
 - **Increment/decrement** — `i++`, `i--`
 - **Ternary operator** — `x > 0 ? "yes" : "no"`
@@ -71,7 +74,7 @@ print(result); // 7
 - **`nk bundle`** — bundles all files into a single IIFE-wrapped JavaScript file
 - **WASM target** — `nk build file.nk --target wasm` compiles numeric functions to WebAssembly Text
 - **Test coverage** — `nk test --coverage` reports line coverage per file
-- **LSP rename** — rename symbol across all usages in the file
+- **LSP rename** — scope-aware rename across all usages in the file
 - **LSP code actions** — quick fixes: "did you mean?", unused variable `_` prefix, add wildcard arm
 - **Smart error messages** — "did you mean?" suggestions, type mismatch hints, function signature help
 - **Source maps** — `nk build file.nk --source-map` generates `.js.map` for debugging
@@ -331,10 +334,18 @@ for (int i = 0; i < 10; i++) {
   print(i);
 }
 
-// For..in loop (iterates over arrays)
+do {
+  x--;
+} while (x > 0);
+
+// For..in loop (iterates over arrays, strings, maps)
 var items = [1, 2, 3];
 for (item in items) {
   print(item);
+}
+
+for (ch in "hello") {
+  print(ch);  // each character
 }
 ```
 
@@ -453,6 +464,7 @@ string fetchData(string url) {
 
 ```
 take { User, Post } from "./models"
+take { Component as C } from "./ui"   // import aliasing
 load "express"
 ```
 
@@ -574,13 +586,22 @@ writer.close();
 stream.pipe("input.txt", "output.txt");
 ```
 
-### Try/Catch
+### Try/Catch/Finally
 
 ```
 try {
   risky();
 } catch (e) {
   print(e);
+} finally {
+  cleanup();
+}
+
+// try/finally without catch is also valid
+try {
+  risky();
+} finally {
+  cleanup();
 }
 ```
 
@@ -924,7 +945,7 @@ The playground includes a code editor, example programs, real-time diagnostics w
 npm test
 ```
 
-471 tests across lexer, parser, type checker, code generator, package manager, LSP, stub generator, and tooling modules.
+510 tests across lexer, parser, type checker, code generator, package manager, LSP, stub generator, and tooling modules.
 
 ## Architecture
 
