@@ -167,6 +167,8 @@ export class Parser {
         case TokenType.Var:
         case TokenType.Const:
         case TokenType.Type:
+        case TokenType.Throw:
+        case TokenType.Do:
           return;
         case TokenType.RightBrace:
           // Don't consume — let the caller handle the closing brace
@@ -440,6 +442,8 @@ export class Parser {
     if (t === TokenType.Declare) return this.parseDeclareModule();
     if (t === TokenType.Defer) return this.parseDeferStatement();
     if (t === TokenType.Extend) return this.parseExtensionDeclaration();
+    if (t === TokenType.Throw) return this.parseThrowStatement();
+    if (t === TokenType.Do) return this.parseDoWhileStatement();
 
     // type Name = Type;
     if (t === TokenType.Type && this.lookAhead(1) === TokenType.Identifier) {
@@ -611,6 +615,8 @@ export class Parser {
 
   private parseParameter(): Parameter {
     const span = this.span();
+    // Variadic: ...type name
+    const isRest = !!this.match(TokenType.Spread);
     if (this.isTypeStart() && this.lookAhead(1) === TokenType.Identifier) {
       const type = this.parseTypeAnnotation();
       const name = this.expect(
@@ -621,7 +627,7 @@ export class Parser {
       if (this.match(TokenType.Assign)) {
         defaultValue = this.parseExpression();
       }
-      return { name, type, defaultValue, span };
+      return { name, type, defaultValue, rest: isRest || undefined, span };
     }
     const name = this.expect(
       TokenType.Identifier,
@@ -631,7 +637,7 @@ export class Parser {
     if (this.match(TokenType.Assign)) {
       defaultValue = this.parseExpression();
     }
-    return { name, defaultValue, span };
+    return { name, defaultValue, rest: isRest || undefined, span };
   }
 
   private parseBlock(): BlockStatement {
@@ -763,15 +769,27 @@ export class Parser {
     const span = this.span();
     this.advance(); // take
     this.expect(TokenType.LeftBrace, "Expected '{'");
-    const names: string[] = [];
+    const names: { name: string; alias?: string }[] = [];
     if (!this.check(TokenType.RightBrace)) {
-      names.push(
-        this.expect(TokenType.Identifier, "Expected identifier").value,
-      );
+      const name = this.expect(
+        TokenType.Identifier,
+        "Expected identifier",
+      ).value;
+      let alias: string | undefined;
+      if (this.match(TokenType.As)) {
+        alias = this.expect(TokenType.Identifier, "Expected alias name").value;
+      }
+      names.push({ name, alias });
       while (this.match(TokenType.Comma)) {
-        names.push(
-          this.expect(TokenType.Identifier, "Expected identifier").value,
-        );
+        const n = this.expect(
+          TokenType.Identifier,
+          "Expected identifier",
+        ).value;
+        let a: string | undefined;
+        if (this.match(TokenType.As)) {
+          a = this.expect(TokenType.Identifier, "Expected alias name").value;
+        }
+        names.push({ name: n, alias: a });
       }
     }
     this.expect(TokenType.RightBrace, "Expected '}'");
@@ -1279,21 +1297,38 @@ export class Parser {
     const span = this.span();
     this.advance(); // try
     const tryBlock = this.parseBlock();
-    this.expect(TokenType.Catch, "Expected 'catch'");
     let catchBinding: string | undefined;
-    if (this.match(TokenType.LeftParen)) {
-      catchBinding = this.expect(
-        TokenType.Identifier,
-        "Expected catch binding",
-      ).value;
-      this.expect(TokenType.RightParen, "Expected ')'");
+    let catchBlock: import("./ast.js").BlockStatement | undefined;
+    let finallyBlock: import("./ast.js").BlockStatement | undefined;
+    if (this.match(TokenType.Catch)) {
+      if (this.match(TokenType.LeftParen)) {
+        catchBinding = this.expect(
+          TokenType.Identifier,
+          "Expected catch binding",
+        ).value;
+        this.expect(TokenType.RightParen, "Expected ')'");
+      }
+      catchBlock = this.parseBlock();
     }
-    const catchBlock = this.parseBlock();
+    if (this.match(TokenType.Finally)) {
+      finallyBlock = this.parseBlock();
+    }
+    if (!catchBlock && !finallyBlock) {
+      this.diagnostics.push(
+        errorDiag("Expected 'catch' or 'finally'", {
+          file: this.file,
+          line: span.line,
+          column: span.column,
+          offset: span.offset,
+        }),
+      );
+    }
     return {
       kind: "TryCatchStatement",
       tryBlock,
       catchBinding,
       catchBlock,
+      finallyBlock,
       span,
     };
   }
@@ -1303,6 +1338,35 @@ export class Parser {
     this.advance(); // defer
     const body = this.parseBlock();
     return { kind: "DeferStatement", body, span };
+  }
+
+  private parseThrowStatement(): Statement {
+    const span = this.span();
+    this.advance(); // throw
+    const argument = this.parseExpression();
+    this.expect(TokenType.Semicolon, "Expected ';'");
+    return {
+      kind: "ThrowStatement",
+      argument,
+      span,
+    } as import("./ast.js").ThrowStatement;
+  }
+
+  private parseDoWhileStatement(): Statement {
+    const span = this.span();
+    this.advance(); // do
+    const body = this.parseBlock();
+    this.expect(TokenType.While, "Expected 'while'");
+    this.expect(TokenType.LeftParen, "Expected '('");
+    const condition = this.parseExpression();
+    this.expect(TokenType.RightParen, "Expected ')'");
+    this.match(TokenType.Semicolon);
+    return {
+      kind: "DoWhileStatement",
+      body,
+      condition,
+      span,
+    } as import("./ast.js").DoWhileStatement;
   }
 
   private parseExtensionDeclaration(): Statement {

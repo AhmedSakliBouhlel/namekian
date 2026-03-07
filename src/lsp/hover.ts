@@ -187,9 +187,17 @@ export function findNodeAtOffset(
       case "ClassDeclaration":
         for (const m of stmt.methods) visitStmt(m.body);
         break;
+      case "ThrowStatement":
+        visitExpr(stmt.argument);
+        break;
+      case "DoWhileStatement":
+        visitExpr(stmt.condition);
+        visitStmt(stmt.body);
+        break;
       case "TryCatchStatement":
         visitStmt(stmt.tryBlock);
-        visitStmt(stmt.catchBlock);
+        if (stmt.catchBlock) visitStmt(stmt.catchBlock);
+        if (stmt.finallyBlock) visitStmt(stmt.finallyBlock);
         break;
       case "MatchStatement":
         visitExpr(stmt.subject);

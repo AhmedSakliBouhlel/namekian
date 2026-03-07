@@ -503,4 +503,22 @@ describe("Lexer", () => {
     expect(tokens[0].type).toBe(TokenType.DocComment);
     expect(tokens[0].value).toBe("This is a doc");
   });
+
+  // --- New keywords: throw, do, as, finally ---
+
+  it("tokenizes throw as keyword", () => {
+    expect(tokenTypes("throw")).toContain(TokenType.Throw);
+  });
+
+  it("tokenizes do as keyword", () => {
+    expect(tokenTypes("do")).toContain(TokenType.Do);
+  });
+
+  it("tokenizes as as keyword", () => {
+    expect(tokenTypes("as")).toContain(TokenType.As);
+  });
+
+  it("tokenizes finally as keyword", () => {
+    expect(tokenTypes("finally")).toContain(TokenType.Finally);
+  });
 });

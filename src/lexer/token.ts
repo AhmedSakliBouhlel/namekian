@@ -106,6 +106,10 @@ export enum TokenType {
   StringInterpEnd = "StringInterpEnd", // } ... "
 
   // Additional keywords
+  Throw = "Throw",
+  Do = "Do",
+  As = "As",
+  Finally = "Finally",
   Never = "Never",
   Defer = "Defer",
   Extend = "Extend",

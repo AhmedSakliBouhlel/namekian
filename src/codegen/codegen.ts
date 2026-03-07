@@ -51,9 +51,19 @@ export class CodeGenerator {
   private operatorMethods = new Map<string, Map<string, string>>();
   // Variable type tracker: varName → structName (for operator dispatch)
   private varTypes = new Map<string, string>();
+  // Interface names — used to skip `extends` for interfaces
+  private interfaceNames = new Set<string>();
+  // Type map from checker — used for operator overload on non-identifier expressions
+  private checkerTypeMap?: Map<number, { tag: string; name?: string }>;
 
-  generate(program: Program, options?: { projectMode?: boolean }): string {
+  generate(
+    program: Program,
+    options?: { projectMode?: boolean; typeMap?: Map<number, any> },
+  ): string {
     this.projectMode = options?.projectMode ?? false;
+    if (options?.typeMap) {
+      this.checkerTypeMap = options.typeMap;
+    }
 
     // First pass: detect features used
     this.detectFeatures(program);
@@ -197,55 +207,233 @@ export class CodeGenerator {
   }> = [];
 
   private detectFeatures(program: Program): void {
-    const source = JSON.stringify(program);
-    if (
-      source.includes('"OkExpr"') ||
-      source.includes('"ErrExpr"') ||
-      source.includes('"MatchExpr"') ||
-      source.includes('"MatchStatement"')
-    ) {
-      this.usesResult = true;
+    // AST walk to detect features — avoids false positives from string literals
+    const self = this;
+
+    function walkExpr(expr: Expression): void {
+      switch (expr.kind) {
+        case "OkExpr":
+        case "ErrExpr":
+          self.usesResult = true;
+          walkExpr(expr.value);
+          break;
+        case "MatchExpr":
+          self.usesResult = true;
+          walkExpr(expr.subject);
+          for (const arm of expr.arms) {
+            if (arm.body.kind === "BlockStatement") walkBlock(arm.body);
+            else walkExpr(arm.body);
+            if (arm.guard) walkExpr(arm.guard);
+          }
+          break;
+        case "RangeExpr":
+          self.usesRange = true;
+          walkExpr(expr.start);
+          walkExpr(expr.end);
+          break;
+        case "ResultUnwrapExpr":
+          self.usesResultUnwrap = true;
+          self.usesResult = true;
+          walkExpr(expr.expression);
+          break;
+        case "ChanExpr":
+          self.usesChannel = true;
+          walkExpr(expr.capacity);
+          break;
+        case "MemberExpr":
+          // Only detect module usage when identifier is object of member access
+          if (expr.object.kind === "Identifier") {
+            const name = expr.object.name;
+            if (name === "http") self.usesHttp = true;
+            else if (name === "json") self.usesJson = true;
+            else if (name === "fs") self.usesFs = true;
+            else if (name === "stream") self.usesStream = true;
+            else if (name === "regex") self.usesRegex = true;
+            else if (name === "time") self.usesTime = true;
+            else if (name === "crypto") self.usesCrypto = true;
+            else if (name === "path") self.usesPath = true;
+            else if (name === "env") self.usesEnv = true;
+          } else {
+            walkExpr(expr.object);
+          }
+          break;
+        case "CallExpr":
+          walkExpr(expr.callee);
+          for (const arg of expr.args) walkExpr(arg);
+          if (
+            expr.callee.kind === "Identifier" &&
+            expr.callee.name === "assert"
+          ) {
+            self.usesAssert = true;
+          }
+          break;
+        case "BinaryExpr":
+          walkExpr(expr.left);
+          walkExpr(expr.right);
+          break;
+        case "UnaryExpr":
+          walkExpr(expr.operand);
+          break;
+        case "IndexExpr":
+          walkExpr(expr.object);
+          walkExpr(expr.index);
+          break;
+        case "AssignExpr":
+          walkExpr(expr.target);
+          walkExpr(expr.value);
+          break;
+        case "CompoundAssignExpr":
+          walkExpr(expr.target);
+          walkExpr(expr.value);
+          break;
+        case "ArrowFunction":
+          if (expr.body.kind === "BlockStatement") walkBlock(expr.body);
+          else walkExpr(expr.body);
+          break;
+        case "NewExpr":
+          walkExpr(expr.callee);
+          for (const arg of expr.args) walkExpr(arg);
+          break;
+        case "ArrayLiteral":
+          for (const el of expr.elements) walkExpr(el);
+          break;
+        case "MapLiteral":
+          for (const e of expr.entries) {
+            walkExpr(e.key);
+            walkExpr(e.value);
+          }
+          break;
+        case "TernaryExpr":
+          walkExpr(expr.condition);
+          walkExpr(expr.consequent);
+          walkExpr(expr.alternate);
+          break;
+        case "SpreadExpr":
+          walkExpr(expr.argument);
+          break;
+        case "PipeExpr":
+          walkExpr(expr.left);
+          walkExpr(expr.right);
+          break;
+        case "TupleLiteral":
+          for (const el of expr.elements) walkExpr(el);
+          break;
+        case "NullCoalesceExpr":
+          walkExpr(expr.left);
+          walkExpr(expr.right);
+          break;
+        case "ArrayComprehension":
+          walkExpr(expr.iterable);
+          walkExpr(expr.body);
+          if (expr.condition) walkExpr(expr.condition);
+          break;
+        case "TypeGuardExpr":
+          walkExpr(expr.expression);
+          break;
+        case "AwaitExpr":
+          walkExpr(expr.argument);
+          break;
+        case "UpdateExpr":
+          walkExpr(expr.argument);
+          break;
+        case "StringInterpolation":
+          for (const part of expr.parts) {
+            if (typeof part !== "string") walkExpr(part);
+          }
+          break;
+        case "NamedArgExpr":
+          walkExpr(expr.value);
+          break;
+        case "AwaitAllExpr":
+          for (const e of expr.expressions) walkExpr(e);
+          break;
+        case "AwaitRaceExpr":
+          for (const e of expr.expressions) walkExpr(e);
+          break;
+        case "SpawnExpr":
+          walkExpr(expr.expression);
+          break;
+      }
     }
-    if (source.includes('"http"')) {
-      this.usesHttp = true;
+
+    function walkStmt(stmt: Statement): void {
+      switch (stmt.kind) {
+        case "VariableDeclaration":
+          walkExpr(stmt.initializer);
+          break;
+        case "FunctionDeclaration":
+          walkBlock(stmt.body);
+          break;
+        case "ReturnStatement":
+          if (stmt.value) walkExpr(stmt.value);
+          break;
+        case "IfStatement":
+          walkExpr(stmt.condition);
+          walkBlock(stmt.consequent);
+          if (stmt.alternate) walkStmt(stmt.alternate);
+          break;
+        case "WhileStatement":
+          walkExpr(stmt.condition);
+          walkBlock(stmt.body);
+          break;
+        case "ForStatement":
+          if (stmt.init) walkStmt(stmt.init);
+          if (stmt.condition) walkExpr(stmt.condition);
+          if (stmt.update) walkExpr(stmt.update);
+          walkBlock(stmt.body);
+          break;
+        case "ForInStatement":
+          walkExpr(stmt.iterable);
+          walkBlock(stmt.body);
+          break;
+        case "BlockStatement":
+          walkBlock(stmt);
+          break;
+        case "ExpressionStatement":
+          walkExpr(stmt.expression);
+          break;
+        case "StructDeclaration":
+        case "ClassDeclaration":
+          for (const m of stmt.methods) walkBlock(m.body);
+          break;
+        case "TryCatchStatement":
+          walkBlock(stmt.tryBlock);
+          if (stmt.catchBlock) walkBlock(stmt.catchBlock);
+          break;
+        case "MatchStatement":
+          self.usesResult = true;
+          walkExpr(stmt.subject);
+          for (const arm of stmt.arms) {
+            if (arm.body.kind === "BlockStatement") walkBlock(arm.body);
+            else walkExpr(arm.body);
+            if (arm.guard) walkExpr(arm.guard);
+          }
+          break;
+        case "DestructureDeclaration":
+          walkExpr(stmt.initializer);
+          break;
+        case "ThrowStatement":
+          walkExpr(stmt.argument);
+          break;
+        case "DoWhileStatement":
+          walkExpr(stmt.condition);
+          walkBlock(stmt.body);
+          break;
+        case "DeferStatement":
+          walkBlock(stmt.body);
+          break;
+        case "ExtensionDeclaration":
+          for (const m of stmt.methods) walkBlock(m.body);
+          break;
+      }
     }
-    if (source.includes('"json"')) {
-      this.usesJson = true;
+
+    function walkBlock(block: BlockStatement): void {
+      for (const s of block.body) walkStmt(s);
     }
-    if (source.includes('"fs"')) {
-      this.usesFs = true;
-    }
-    if (source.includes('"stream"')) {
-      this.usesStream = true;
-    }
-    if (source.includes('"RangeExpr"')) {
-      this.usesRange = true;
-    }
-    if (source.includes('"assert"')) {
-      this.usesAssert = true;
-    }
-    if (source.includes('"ResultUnwrapExpr"')) {
-      this.usesResultUnwrap = true;
-      this.usesResult = true;
-    }
-    if (source.includes('"ChanExpr"')) {
-      this.usesChannel = true;
-    }
-    if (source.includes('"Identifier","name":"regex"')) {
-      this.usesRegex = true;
-    }
-    if (source.includes('"Identifier","name":"time"')) {
-      this.usesTime = true;
-    }
-    if (source.includes('"Identifier","name":"crypto"')) {
-      this.usesCrypto = true;
-    }
-    if (source.includes('"Identifier","name":"path"')) {
-      this.usesPath = true;
-    }
-    if (source.includes('"Identifier","name":"env"')) {
-      this.usesEnv = true;
-    }
+
+    for (const stmt of program.body) walkStmt(stmt);
+
     // Collect extension methods and operator overloads
     this.collectExtensionsAndOperators(program);
 
@@ -255,6 +443,9 @@ export class CodeGenerator {
 
   private collectExtensionsAndOperators(program: Program): void {
     for (const stmt of program.body) {
+      if (stmt.kind === "InterfaceDeclaration") {
+        this.interfaceNames.add(stmt.name);
+      }
       if (stmt.kind === "ExtensionDeclaration") {
         const typeName =
           stmt.targetType.kind === "NamedType" ? stmt.targetType.name : "__ext";
@@ -358,7 +549,19 @@ export class CodeGenerator {
       case "TryCatchStatement":
         return (
           this.bodyCallsAsync(stmt.tryBlock, asyncCallees) ||
-          this.bodyCallsAsync(stmt.catchBlock, asyncCallees)
+          (stmt.catchBlock
+            ? this.bodyCallsAsync(stmt.catchBlock, asyncCallees)
+            : false) ||
+          (stmt.finallyBlock
+            ? this.bodyCallsAsync(stmt.finallyBlock, asyncCallees)
+            : false)
+        );
+      case "ThrowStatement":
+        return this.exprCallsAsync(stmt.argument, asyncCallees);
+      case "DoWhileStatement":
+        return (
+          this.exprCallsAsync(stmt.condition, asyncCallees) ||
+          this.bodyCallsAsync(stmt.body, asyncCallees)
         );
       case "DeferStatement":
         return this.bodyCallsAsync(stmt.body, asyncCallees);
@@ -473,9 +676,12 @@ export class CodeGenerator {
 
   private genParams(params: Parameter[]): string {
     return params
-      .map((p) =>
-        p.defaultValue ? `${p.name} = ${this.genExpr(p.defaultValue)}` : p.name,
-      )
+      .map((p) => {
+        const prefix = p.rest ? "..." : "";
+        return p.defaultValue
+          ? `${prefix}${p.name} = ${this.genExpr(p.defaultValue)}`
+          : `${prefix}${p.name}`;
+      })
       .join(", ");
   }
 
@@ -658,7 +864,10 @@ export class CodeGenerator {
       }
 
       case "ClassDeclaration": {
-        const ext = stmt.superClass ? ` extends ${stmt.superClass}` : "";
+        const ext =
+          stmt.superClass && !this.interfaceNames.has(stmt.superClass)
+            ? ` extends ${stmt.superClass}`
+            : "";
         const classExportPrefix =
           this.projectMode && this.indent === 0 ? "export " : "";
         this.emit(`${classExportPrefix}class ${stmt.name}${ext} {`);
@@ -668,7 +877,8 @@ export class CodeGenerator {
           const fieldNames = stmt.fields.map((f) => f.name);
           this.emit(`constructor(${fieldNames.join(", ")}) {`);
           this.indent++;
-          if (stmt.superClass) this.emit("super();");
+          if (stmt.superClass && !this.interfaceNames.has(stmt.superClass))
+            this.emit("super();");
           for (const f of fieldNames) {
             this.emit(`this.${f} = ${f};`);
           }
@@ -731,7 +941,9 @@ export class CodeGenerator {
       }
 
       case "TakeStatement": {
-        const names = stmt.names.join(", ");
+        const names = stmt.names
+          .map((n) => (n.alias ? `${n.name} as ${n.alias}` : n.name))
+          .join(", ");
         let path = stmt.path;
         if (path.startsWith("./") || path.startsWith("../")) {
           path = path.endsWith(".js") ? path : path + ".js";
@@ -749,14 +961,22 @@ export class CodeGenerator {
         this.indent++;
         this.emitBlock(stmt.tryBlock);
         this.indent--;
-        if (stmt.catchBinding) {
-          this.emit(`} catch (${stmt.catchBinding}) {`);
-        } else {
-          this.emit("} catch {");
+        if (stmt.catchBlock) {
+          if (stmt.catchBinding) {
+            this.emit(`} catch (${stmt.catchBinding}) {`);
+          } else {
+            this.emit("} catch {");
+          }
+          this.indent++;
+          this.emitBlock(stmt.catchBlock);
+          this.indent--;
         }
-        this.indent++;
-        this.emitBlock(stmt.catchBlock);
-        this.indent--;
+        if (stmt.finallyBlock) {
+          this.emit("} finally {");
+          this.indent++;
+          this.emitBlock(stmt.finallyBlock);
+          this.indent--;
+        }
         this.emit("}");
         break;
 
@@ -782,6 +1002,18 @@ export class CodeGenerator {
 
       case "ContinueStatement":
         this.emit("continue;");
+        break;
+
+      case "ThrowStatement":
+        this.emit(`throw ${this.genExpr(stmt.argument)};`);
+        break;
+
+      case "DoWhileStatement":
+        this.emit("do {");
+        this.indent++;
+        this.emitBlock(stmt.body);
+        this.indent--;
+        this.emit(`} while (${this.genExpr(stmt.condition)});`);
         break;
 
       case "DeferStatement":
@@ -814,8 +1046,37 @@ export class CodeGenerator {
   }
 
   private emitBlock(block: BlockStatement): void {
+    // Collect defers for LIFO ordering
+    const defers: BlockStatement[] = [];
+    const nonDefers: Statement[] = [];
     for (const stmt of block.body) {
+      if (stmt.kind === "DeferStatement") {
+        defers.push(stmt.body);
+      } else {
+        nonDefers.push(stmt);
+      }
+    }
+    if (defers.length === 0) {
+      for (const stmt of block.body) {
+        this.emitStatement(stmt);
+      }
+      return;
+    }
+    // Wrap in nested try/finally in reverse order (LIFO)
+    for (let i = defers.length - 1; i >= 0; i--) {
+      this.emit("try {");
+      this.indent++;
+    }
+    for (const stmt of nonDefers) {
       this.emitStatement(stmt);
+    }
+    for (let i = defers.length - 1; i >= 0; i--) {
+      this.indent--;
+      this.emit("} finally {");
+      this.indent++;
+      this.emitBlock(defers[i]);
+      this.indent--;
+      this.emit("}");
     }
   }
 
@@ -1001,13 +1262,25 @@ export class CodeGenerator {
 
       case "BinaryExpr": {
         // Check for operator overloading
+        let structName: string | undefined;
         if (expr.left.kind === "Identifier") {
-          const structName = this.varTypes.get(expr.left.name);
-          if (structName) {
-            const opMethod = this.findOperatorMethod(structName, expr.operator);
-            if (opMethod) {
-              return `${this.genExpr(expr.left)}.${opMethod}(${this.genExpr(expr.right)})`;
-            }
+          structName = this.varTypes.get(expr.left.name);
+        }
+        // Also check typeMap for non-identifier expressions
+        if (!structName && this.checkerTypeMap) {
+          const leftType = this.checkerTypeMap.get(expr.left.span.offset);
+          if (
+            leftType &&
+            (leftType.tag === "struct" || leftType.tag === "class") &&
+            leftType.name
+          ) {
+            structName = leftType.name;
+          }
+        }
+        if (structName) {
+          const opMethod = this.findOperatorMethod(structName, expr.operator);
+          if (opMethod) {
+            return `${this.genExpr(expr.left)}.${opMethod}(${this.genExpr(expr.right)})`;
           }
         }
         return `(${this.genExpr(expr.left)} ${expr.operator} ${this.genExpr(expr.right)})`;
@@ -1229,8 +1502,17 @@ export class CodeGenerator {
       if (arm.body.kind === "BlockStatement") {
         const saved = this.output.length;
         this.emitBlock(arm.body);
-        const inner = this.output.splice(saved).join("; ");
-        code += inner;
+        const segments = this.output.splice(saved);
+        // Add return to the last expression statement if needed
+        if (segments.length > 0) {
+          const last = segments[segments.length - 1].trimStart();
+          if (!last.startsWith("return ") && !last.startsWith("return;")) {
+            segments[segments.length - 1] = segments[
+              segments.length - 1
+            ].replace(/^(\s*)/, "$1return ");
+          }
+        }
+        code += segments.join("; ");
       } else {
         code += `return ${this.genExpr(arm.body)};`;
       }

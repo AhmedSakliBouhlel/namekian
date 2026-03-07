@@ -920,4 +920,148 @@ describe("TypeChecker", () => {
       var home = env.get("HOME");
     `);
   });
+
+  // --- Fix 5: arrow function block-body return type inference ---
+  it("infers return type of arrow function with block body", () => {
+    expectNoErrors(`
+      var fn = (int x) => {
+        return x + 1;
+      };
+      int result = fn(5);
+    `);
+  });
+
+  it("arrow with block body returning string is typed correctly", () => {
+    expectNoErrors(`
+      var fn = (int x) => {
+        return "hello";
+      };
+      string result = fn(5);
+    `);
+  });
+
+  // --- Fix 6: generic constraints enforced ---
+  it("rejects type that does not satisfy generic constraint", () => {
+    expectError(
+      `
+      interface Printable {
+        string toString();
+      }
+      void show<T : Printable>(T item) {
+        print(item.toString());
+      }
+      show(42);
+    `,
+      "constraint",
+    );
+  });
+
+  it("accepts type that satisfies generic constraint", () => {
+    expectNoErrors(`
+      interface Printable {
+        string toString();
+      }
+      struct Name : Printable {
+        string value;
+        string toString() { return value; }
+      }
+      void show<T : Printable>(T item) {
+        print(item.toString());
+      }
+      show(Name("hello"));
+    `);
+  });
+
+  // --- Fix 7: class inheritance fields and methods ---
+  it("subclass inherits parent fields", () => {
+    expectNoErrors(`
+      class Animal {
+        string name;
+      }
+      class Dog : Animal {
+        string breed;
+      }
+      var dog = Dog("Rex", "Lab");
+      string n = dog.name;
+      string b = dog.breed;
+    `);
+  });
+
+  // --- Feature 9: throw statement type checks ---
+  it("accepts throw statement", () => {
+    expectNoErrors(`
+      throw "something went wrong";
+    `);
+  });
+
+  // --- Feature 11: try/catch/finally ---
+  it("accepts try/catch/finally", () => {
+    expectNoErrors(`
+      try {
+        int x = 1;
+      } catch (e) {
+        print(e);
+      } finally {
+        print("done");
+      }
+    `);
+  });
+
+  it("accepts try/finally without catch", () => {
+    expectNoErrors(`
+      try {
+        int x = 1;
+      } finally {
+        print("cleanup");
+      }
+    `);
+  });
+
+  // --- Feature 12: do..while ---
+  it("accepts do..while with bool condition", () => {
+    expectNoErrors(`
+      int x = 0;
+      do {
+        x = x + 1;
+      } while (x < 10);
+    `);
+  });
+
+  it("warns on do..while with non-bool condition", () => {
+    const diags = check(`
+      do {
+        print("loop");
+      } while (42);
+    `);
+    const warnings = diags.filter((d) => d.severity === "warning");
+    expect(warnings.some((w) => w.message.includes("bool"))).toBe(true);
+  });
+
+  // --- Feature 13: variadic parameters ---
+  it("accepts rest parameter", () => {
+    expectNoErrors(`
+      void log(...string items) {
+        print(items);
+      }
+      log("a", "b", "c");
+    `);
+  });
+
+  // --- Feature 15: for..in type narrowing ---
+  it("narrows for..in over string to string element", () => {
+    expectNoErrors(`
+      for (c in "hello") {
+        string ch = c;
+      }
+    `);
+  });
+
+  it("narrows for..in over map to key type", () => {
+    expectNoErrors(`
+      map<string, int> m = {};
+      for (k in m) {
+        string key = k;
+      }
+    `);
+  });
 });

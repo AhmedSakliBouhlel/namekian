@@ -63,34 +63,169 @@ export class TypeChecker {
   }
 
   private registerStdlib(): void {
+    const fn = (
+      params: NkType[],
+      ret: NkType,
+      isAsync?: boolean,
+    ): NkFunction => ({
+      tag: "function",
+      params,
+      returnType: ret,
+      isAsync,
+    });
     // print(...)
-    this.env.define("print", {
-      tag: "function",
-      params: [NK_ANY],
-      returnType: NK_VOID,
-    });
+    this.env.define("print", fn([NK_ANY], NK_VOID));
     // http module
-    this.env.define("http", NK_ANY);
+    this.env.define("http", {
+      tag: "struct",
+      name: "http",
+      fields: new Map<string, NkType>(),
+      methods: new Map<string, NkFunction>([
+        ["get", fn([NK_STRING], NK_ANY, true)],
+        ["post", fn([NK_STRING, NK_ANY], NK_ANY, true)],
+      ]),
+    } as NkStruct);
     // json module
-    this.env.define("json", NK_ANY);
+    this.env.define("json", {
+      tag: "struct",
+      name: "json",
+      fields: new Map<string, NkType>(),
+      methods: new Map<string, NkFunction>([
+        ["encode", fn([NK_ANY], NK_STRING)],
+        ["decode", fn([NK_STRING], NK_ANY)],
+      ]),
+    } as NkStruct);
     // math module
-    this.env.define("math", NK_ANY);
+    this.env.define("math", {
+      tag: "struct",
+      name: "math",
+      fields: new Map<string, NkType>([
+        ["pi", NK_FLOAT],
+        ["e", NK_FLOAT],
+      ]),
+      methods: new Map<string, NkFunction>([
+        ["sqrt", fn([NK_FLOAT], NK_FLOAT)],
+        ["abs", fn([NK_FLOAT], NK_FLOAT)],
+        ["floor", fn([NK_FLOAT], NK_INT)],
+        ["ceil", fn([NK_FLOAT], NK_INT)],
+        ["round", fn([NK_FLOAT], NK_INT)],
+        ["min", fn([NK_FLOAT, NK_FLOAT], NK_FLOAT)],
+        ["max", fn([NK_FLOAT, NK_FLOAT], NK_FLOAT)],
+        ["pow", fn([NK_FLOAT, NK_FLOAT], NK_FLOAT)],
+        ["random", fn([], NK_FLOAT)],
+      ]),
+    } as NkStruct);
     // fs module (async file I/O)
-    this.env.define("fs", NK_ANY);
+    this.env.define("fs", {
+      tag: "struct",
+      name: "fs",
+      fields: new Map<string, NkType>(),
+      methods: new Map<string, NkFunction>([
+        ["read", fn([NK_STRING], NK_STRING, true)],
+        ["write", fn([NK_STRING, NK_STRING], NK_VOID, true)],
+        ["append", fn([NK_STRING, NK_STRING], NK_VOID, true)],
+        ["exists", fn([NK_STRING], NK_BOOL, true)],
+        ["remove", fn([NK_STRING], NK_VOID, true)],
+        [
+          "readLines",
+          fn([NK_STRING], { tag: "array", elementType: NK_STRING }, true),
+        ],
+        [
+          "readDir",
+          fn([NK_STRING], { tag: "array", elementType: NK_STRING }, true),
+        ],
+      ]),
+    } as NkStruct);
     // stream module (sync I/O)
-    this.env.define("stream", NK_ANY);
-    // stdlib modules
-    this.env.define("regex", NK_ANY);
-    this.env.define("time", NK_ANY);
-    this.env.define("crypto", NK_ANY);
-    this.env.define("path", NK_ANY);
-    this.env.define("env", NK_ANY);
+    this.env.define("stream", {
+      tag: "struct",
+      name: "stream",
+      fields: new Map<string, NkType>(),
+      methods: new Map<string, NkFunction>([
+        ["reader", fn([NK_STRING], NK_ANY)],
+        ["writer", fn([NK_STRING], NK_ANY)],
+        ["pipe", fn([NK_STRING, NK_STRING], NK_VOID)],
+      ]),
+    } as NkStruct);
+    // regex module
+    this.env.define("regex", {
+      tag: "struct",
+      name: "regex",
+      fields: new Map<string, NkType>(),
+      methods: new Map<string, NkFunction>([
+        ["test", fn([NK_STRING, NK_STRING], NK_BOOL)],
+        [
+          "match",
+          fn([NK_STRING, NK_STRING], {
+            tag: "nullable",
+            innerType: { tag: "array", elementType: NK_STRING },
+          }),
+        ],
+        ["replace", fn([NK_STRING, NK_STRING, NK_STRING], NK_STRING)],
+        [
+          "split",
+          fn([NK_STRING, NK_STRING], { tag: "array", elementType: NK_STRING }),
+        ],
+        [
+          "findAll",
+          fn([NK_STRING, NK_STRING], { tag: "array", elementType: NK_STRING }),
+        ],
+      ]),
+    } as NkStruct);
+    // time module
+    this.env.define("time", {
+      tag: "struct",
+      name: "time",
+      fields: new Map<string, NkType>(),
+      methods: new Map<string, NkFunction>([
+        ["now", fn([], NK_FLOAT)],
+        ["format", fn([NK_FLOAT, NK_STRING], NK_STRING)],
+        ["parse", fn([NK_STRING, NK_STRING], NK_FLOAT)],
+        ["date", fn([], NK_STRING)],
+      ]),
+    } as NkStruct);
+    // crypto module
+    this.env.define("crypto", {
+      tag: "struct",
+      name: "crypto",
+      fields: new Map<string, NkType>(),
+      methods: new Map<string, NkFunction>([
+        ["hash", fn([NK_STRING, NK_STRING], NK_STRING)],
+        ["randomBytes", fn([NK_INT], NK_STRING)],
+        ["uuid", fn([], NK_STRING)],
+      ]),
+    } as NkStruct);
+    // path module
+    this.env.define("path", {
+      tag: "struct",
+      name: "path",
+      fields: new Map<string, NkType>(),
+      methods: new Map<string, NkFunction>([
+        ["join", fn([NK_STRING, NK_STRING], NK_STRING)],
+        ["resolve", fn([NK_STRING], NK_STRING)],
+        ["dirname", fn([NK_STRING], NK_STRING)],
+        ["basename", fn([NK_STRING], NK_STRING)],
+        ["ext", fn([NK_STRING], NK_STRING)],
+        ["isAbsolute", fn([NK_STRING], NK_BOOL)],
+      ]),
+    } as NkStruct);
+    // env module
+    this.env.define("env", {
+      tag: "struct",
+      name: "env",
+      fields: new Map<string, NkType>(),
+      methods: new Map<string, NkFunction>([
+        ["get", fn([NK_STRING], { tag: "nullable", innerType: NK_STRING })],
+        ["set", fn([NK_STRING, NK_STRING], NK_VOID)],
+        ["has", fn([NK_STRING], NK_BOOL)],
+        [
+          "all",
+          fn([], { tag: "map", keyType: NK_STRING, valueType: NK_STRING }),
+        ],
+      ]),
+    } as NkStruct);
     // assert(condition, message?)
-    this.env.define("assert", {
-      tag: "function",
-      params: [NK_BOOL, NK_STRING],
-      returnType: NK_VOID,
-    });
+    this.env.define("assert", fn([NK_BOOL, NK_STRING], NK_VOID));
   }
 
   private error(
@@ -347,9 +482,13 @@ export class TypeChecker {
         // Register generic type params as typevars in scope
         this.env.enterScope();
         for (const tp of stmt.typeParams) {
+          const constraint = tp.constraint
+            ? this.resolveType(tp.constraint)
+            : undefined;
           this.env.registerType(tp.name, {
             tag: "typevar",
             name: tp.name,
+            constraint,
           } as NkTypeVar);
         }
         const paramTypes = stmt.params.map((p) =>
@@ -358,24 +497,42 @@ export class TypeChecker {
         const returnType = stmt.returnType
           ? this.resolveType(stmt.returnType)
           : NK_VOID;
+        const hasRest = stmt.params.some((p) => p.rest);
         const fnType: NkFunction = {
           tag: "function",
           params: paramTypes,
           returnType,
+          isVariadic: hasRest || undefined,
           typeParams:
             stmt.typeParams.length > 0
               ? stmt.typeParams.map((tp) => tp.name)
               : undefined,
         };
         this.env.exitScope();
+        // Store constraints on the function type for later enforcement
+        if (stmt.typeParams.some((tp) => tp.constraint)) {
+          (fnType as any)._constraints = new Map<string, NkType>();
+          for (const tp of stmt.typeParams) {
+            if (tp.constraint) {
+              (fnType as any)._constraints.set(
+                tp.name,
+                this.resolveType(tp.constraint),
+              );
+            }
+          }
+        }
         this.env.define(stmt.name, fnType);
         this.recordSymbol(stmt.name, fnType, stmt.span.offset);
 
         this.env.enterScope();
         for (const tp of stmt.typeParams) {
+          const constraint = tp.constraint
+            ? this.resolveType(tp.constraint)
+            : undefined;
           this.env.registerType(tp.name, {
             tag: "typevar",
             name: tp.name,
+            constraint,
           } as NkTypeVar);
         }
         for (let i = 0; i < stmt.params.length; i++) {
@@ -460,6 +617,16 @@ export class TypeChecker {
         let elemType: NkType = NK_ANY;
         if (iterableType.tag === "array") {
           elemType = iterableType.elementType;
+        } else if (iterableType.tag === "string") {
+          elemType = NK_STRING;
+        } else if (iterableType.tag === "map") {
+          elemType = iterableType.keyType;
+        } else if (iterableType.tag === "tuple") {
+          // Union of all element types
+          elemType =
+            iterableType.elements.length === 1
+              ? iterableType.elements[0]
+              : { tag: "union", types: iterableType.elements };
         }
         this.env.define(stmt.variable, elemType);
         this.checkStatement(stmt.body);
@@ -578,6 +745,18 @@ export class TypeChecker {
             params: paramTypes,
             returnType: retType,
           });
+        }
+        // Inherit fields/methods from superclass
+        if (stmt.superClass) {
+          const superType = this.env.lookupType(stmt.superClass);
+          if (superType && superType.tag === "class") {
+            for (const [fname, ftype] of superType.fields) {
+              if (!fields.has(fname)) fields.set(fname, ftype);
+            }
+            for (const [mname, mtype] of superType.methods) {
+              if (!methods.has(mname)) methods.set(mname, mtype);
+            }
+          }
         }
         const classType: NkClass = {
           tag: "class",
@@ -727,27 +906,28 @@ export class TypeChecker {
 
       case "TakeStatement": {
         const takeModule = this.moduleRegistry.get(stmt.path);
-        for (const name of stmt.names) {
+        for (const n of stmt.names) {
+          const localName = n.alias || n.name;
           let type: NkType = NK_ANY;
           if (takeModule) {
-            const memberType = takeModule.members.get(name);
+            const memberType = takeModule.members.get(n.name);
             if (memberType) {
               type = memberType;
             } else {
               this.error(
-                `Module '${stmt.path}' has no exported member '${name}'`,
+                `Module '${stmt.path}' has no exported member '${n.name}'`,
                 stmt,
               );
             }
           } else if (this.externalTypes) {
             for (const [, types] of this.externalTypes) {
-              if (types.has(name)) {
-                type = types.get(name)!;
+              if (types.has(n.name)) {
+                type = types.get(n.name)!;
                 break;
               }
             }
           }
-          this.env.define(name, type);
+          this.env.define(localName, type);
         }
         break;
       }
@@ -789,12 +969,17 @@ export class TypeChecker {
 
       case "TryCatchStatement":
         this.checkStatement(stmt.tryBlock);
-        this.env.enterScope();
-        if (stmt.catchBinding) {
-          this.env.define(stmt.catchBinding, NK_ANY);
+        if (stmt.catchBlock) {
+          this.env.enterScope();
+          if (stmt.catchBinding) {
+            this.env.define(stmt.catchBinding, NK_ANY);
+          }
+          this.checkStatement(stmt.catchBlock);
+          this.env.exitScope();
         }
-        this.checkStatement(stmt.catchBlock);
-        this.env.exitScope();
+        if (stmt.finallyBlock) {
+          this.checkStatement(stmt.finallyBlock);
+        }
         break;
 
       case "MatchStatement": {
@@ -875,10 +1060,53 @@ export class TypeChecker {
         break;
       }
 
+      case "ThrowStatement":
+        this.checkExpression(stmt.argument);
+        break;
+
+      case "DoWhileStatement": {
+        const doCondType = this.checkExpression(stmt.condition);
+        if (doCondType.tag !== "bool" && doCondType.tag !== "any") {
+          this.warn("Condition in do..while should be bool", stmt);
+        }
+        this.checkStatement(stmt.body);
+        break;
+      }
+
       case "BreakStatement":
       case "ContinueStatement":
         break;
     }
+  }
+
+  private collectReturnTypes(
+    block: import("../parser/ast.js").BlockStatement,
+  ): NkType[] {
+    const types: NkType[] = [];
+    const collect = (stmts: import("../parser/ast.js").Statement[]) => {
+      for (const stmt of stmts) {
+        if (stmt.kind === "ReturnStatement" && stmt.value) {
+          types.push(this.checkExpression(stmt.value));
+        } else if (stmt.kind === "ReturnStatement") {
+          types.push(NK_VOID);
+        } else if (stmt.kind === "IfStatement") {
+          collect(stmt.consequent.body);
+          if (stmt.alternate) {
+            if (stmt.alternate.kind === "BlockStatement") {
+              collect(stmt.alternate.body);
+            } else {
+              collect([stmt.alternate]);
+            }
+          }
+        } else if (stmt.kind === "BlockStatement") {
+          collect(stmt.body);
+        } else {
+          this.checkStatement(stmt);
+        }
+      }
+    };
+    collect(block.body);
+    return types;
   }
 
   private bindMatchPattern(
@@ -1045,10 +1273,12 @@ export class TypeChecker {
 
         if (calleeType.tag === "function") {
           if (expr.args.length !== calleeType.params.length) {
-            // print and assert are variadic-ish
+            // print, assert, and rest-param functions are variadic
             const isVariadic =
-              expr.callee.kind === "Identifier" &&
-              (expr.callee.name === "print" || expr.callee.name === "assert");
+              calleeType.isVariadic ||
+              (expr.callee.kind === "Identifier" &&
+                (expr.callee.name === "print" ||
+                  expr.callee.name === "assert"));
             if (!isVariadic) {
               const fnName =
                 expr.callee.kind === "Identifier"
@@ -1067,6 +1297,21 @@ export class TypeChecker {
           // Generic type inference
           if (calleeType.typeParams && calleeType.typeParams.length > 0) {
             const substitution = this.inferTypeArgs(calleeType, argTypes);
+            // Enforce constraints
+            const constraints = (calleeType as any)._constraints as
+              | Map<string, NkType>
+              | undefined;
+            if (constraints) {
+              for (const [tpName, constraint] of constraints) {
+                const inferred = substitution.get(tpName);
+                if (inferred && !isAssignable(constraint, inferred)) {
+                  this.error(
+                    `Type '${typeToString(inferred)}' does not satisfy constraint '${typeToString(constraint)}'`,
+                    expr,
+                  );
+                }
+              }
+            }
             return this.applySubstitution(calleeType.returnType, substitution);
           }
           return calleeType.returnType;
@@ -1287,8 +1532,11 @@ export class TypeChecker {
         }
         let retType: NkType;
         if (expr.body.kind === "BlockStatement") {
-          this.checkStatement(expr.body);
-          retType = NK_VOID;
+          const prevReturn = this.currentReturnType;
+          this.currentReturnType = undefined;
+          const returnTypes = this.collectReturnTypes(expr.body);
+          this.currentReturnType = prevReturn;
+          retType = returnTypes.length > 0 ? returnTypes[0] : NK_VOID;
         } else {
           retType = this.checkExpression(expr.body);
         }
