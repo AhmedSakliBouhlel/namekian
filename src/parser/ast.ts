@@ -411,6 +411,7 @@ export interface Parameter {
   name: string;
   type?: TypeAnnotation;
   defaultValue?: Expression;
+  rest?: boolean;
   span: SourceSpan;
 }
 
@@ -439,7 +440,9 @@ export type Statement =
   | DestructureDeclaration
   | DeclareModuleStatement
   | DeferStatement
-  | ExtensionDeclaration;
+  | ExtensionDeclaration
+  | ThrowStatement
+  | DoWhileStatement;
 
 export interface VariableDeclaration {
   kind: "VariableDeclaration";
@@ -572,7 +575,7 @@ export interface EnumDeclaration {
 
 export interface TakeStatement {
   kind: "TakeStatement";
-  names: string[];
+  names: { name: string; alias?: string }[];
   path: string;
   span: SourceSpan;
 }
@@ -588,7 +591,8 @@ export interface TryCatchStatement {
   kind: "TryCatchStatement";
   tryBlock: BlockStatement;
   catchBinding?: string;
-  catchBlock: BlockStatement;
+  catchBlock?: BlockStatement;
+  finallyBlock?: BlockStatement;
   span: SourceSpan;
 }
 
@@ -628,6 +632,21 @@ export interface TypeAliasStatement {
 export interface DeferStatement {
   kind: "DeferStatement";
   body: BlockStatement;
+  span: SourceSpan;
+}
+
+// throw <expr>;
+export interface ThrowStatement {
+  kind: "ThrowStatement";
+  argument: Expression;
+  span: SourceSpan;
+}
+
+// do { ... } while (cond);
+export interface DoWhileStatement {
+  kind: "DoWhileStatement";
+  body: BlockStatement;
+  condition: Expression;
   span: SourceSpan;
 }
 

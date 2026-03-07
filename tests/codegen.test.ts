@@ -679,4 +679,145 @@ describe("CodeGenerator", () => {
     expect(js).not.toContain("///");
     expect(js).toContain("function add(a, b)");
   });
+
+  // --- Fix 1: defer LIFO ordering ---
+  it("defer statements execute in LIFO order", () => {
+    const js = gen(`
+      void test() {
+        defer { print("first"); }
+        defer { print("second"); }
+        defer { print("third"); }
+        print("body");
+      }
+    `);
+    // Defers should be wrapped in nested try/finally in reverse order
+    // The last defer should be in the innermost finally
+    expect(js).toContain("try");
+    expect(js).toContain("finally");
+    // "third" should be in an inner finally, "first" in the outermost
+    const thirdIdx = js.indexOf('"third"');
+    const firstIdx = js.indexOf('"first"');
+    // first defer's finally wraps everything, so appears later in the output
+    expect(firstIdx).toBeGreaterThan(thirdIdx);
+  });
+
+  // --- Fix 2: match expression block-body returns value ---
+  it("match expression with block body returns a value", () => {
+    const js = gen(`
+var r = Ok(5);
+var result = match (r) {
+  Ok(v) => {
+    int y = v;
+    y + 1;
+  }
+  Err(e) => 0
+};
+`);
+    // The block arm should have a return for the last expression
+    expect(js).toContain("return");
+  });
+
+  // --- Fix 3: detectFeatures false positives ---
+  it("string literal 'http' does not inject HTTP runtime", () => {
+    const js = gen(`
+      string url = "http://example.com";
+      print(url);
+    `);
+    expect(js).not.toContain("__nk_http");
+  });
+
+  // --- Fix 4: class extends interface emits no extends ---
+  it("class implementing interface does not emit extends", () => {
+    const js = gen(`
+      interface Printable {
+        string toString();
+      }
+      class Foo : Printable {
+        string toString() { return "foo"; }
+      }
+    `);
+    expect(js).not.toContain("extends Printable");
+    expect(js).toContain("class Foo");
+  });
+
+  // --- Feature 9: throw statement ---
+  it("generates throw statement", () => {
+    const js = gen(`throw "error";`);
+    expect(js).toContain('throw "error"');
+  });
+
+  // --- Feature 10: import aliasing ---
+  it("generates import with aliasing", () => {
+    const js = gen(`take { User as U, Post } from "./models";`);
+    expect(js).toContain("User as U");
+    expect(js).toContain("Post");
+  });
+
+  // --- Feature 11: try/catch/finally ---
+  it("generates try/catch/finally", () => {
+    const js = gen(`
+      try {
+        print("try");
+      } catch (e) {
+        print("catch");
+      } finally {
+        print("finally");
+      }
+    `);
+    expect(js).toContain("try");
+    expect(js).toContain("catch");
+    expect(js).toContain("finally");
+  });
+
+  it("generates try/finally without catch", () => {
+    const js = gen(`
+      try {
+        print("try");
+      } finally {
+        print("finally");
+      }
+    `);
+    expect(js).toContain("try");
+    expect(js).toContain("finally");
+    expect(js).not.toContain("catch");
+  });
+
+  // --- Feature 12: do..while loop ---
+  it("generates do..while loop", () => {
+    const js = gen(`
+      int x = 0;
+      do {
+        x = x + 1;
+      } while (x < 10);
+    `);
+    expect(js).toContain("do {");
+    expect(js).toContain("} while");
+  });
+
+  // --- Feature 13: variadic parameters ---
+  it("generates rest parameters", () => {
+    const js = gen(`
+      void log(...string items) {
+        print(items);
+      }
+    `);
+    expect(js).toContain("...items");
+  });
+
+  // --- Feature 16: operator overload on struct variables ---
+  it("generates operator overload on struct variables", () => {
+    const js = gen(`
+struct Vec2 {
+  float x;
+  float y;
+  operator +(Vec2 other) {
+    return new Vec2(x + other.x, y + other.y);
+  }
+}
+Vec2 v1 = new Vec2(1.0, 2.0);
+Vec2 v2 = new Vec2(3.0, 4.0);
+var v3 = v1 + v2;
+`);
+    expect(js).toContain("__op_plus");
+  });
 });

@@ -763,3 +763,90 @@ describe("references: getReferences", () => {
     expect(refs.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Fix 17: member-access go-to-definition
+// ---------------------------------------------------------------------------
+
+describe("definition: member-access go-to-definition", () => {
+  it("jumps to struct field definition on member access", () => {
+    const source = `struct Point { int x; int y; }
+Point p = Point(1, 2);
+int val = p.x;`;
+    const result = compile(source, "<test>", { retainChecker: true });
+    const ast = result.ast!;
+    const typeMap = result.checker?.typeMap;
+    // Find offset of '.x' property access — the 'x' after 'p.'
+    const dotX = source.lastIndexOf(".x") + 1; // offset of 'x' in 'p.x'
+    const def = getDefinition(ast, source, dotX, "file:///test.nk", typeMap);
+    expect(def).not.toBeNull();
+    // The definition should point to the 'x' field in the struct declaration
+    if (def) {
+      // Verify it points somewhere in the struct declaration area
+      expect(def.uri).toBe("file:///test.nk");
+    }
+  });
+
+  it("falls back to symbol index for non-member identifiers", () => {
+    const source = `int x = 5; int y = x;`;
+    const result = compile(source, "<test>", { retainChecker: true });
+    const ast = result.ast!;
+    // target 'x' in 'int y = x' — this is an Identifier expression
+    const xRef = source.lastIndexOf("x");
+    const def = getDefinition(
+      ast,
+      source,
+      xRef,
+      "file:///test.nk",
+      result.checker?.typeMap,
+    );
+    expect(def).not.toBeNull();
+    expect(def!.uri).toBe("file:///test.nk");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix 18: scope-aware references
+// ---------------------------------------------------------------------------
+
+describe("references: scope-aware", () => {
+  it("does not conflate x in different functions", () => {
+    const source = `void foo() { int x = 1; print(x); }
+void bar() { int x = 2; print(x); }`;
+    const result = compile(source, "<test>", { noCheck: true });
+    const ast = result.ast!;
+    // Target 'x' inside print(x) in foo — this is an Identifier expression
+    // "print(x)" first occurrence, find the 'x' inside it
+    const printFoo = source.indexOf("print(x)");
+    const xInFoo = printFoo + 6; // offset of 'x' in first "print(x)"
+    const refs = getReferences(ast, source, xInFoo, "file:///test.nk");
+    // Should only find references within foo (declaration + print(x) = 2)
+    expect(refs.length).toBe(2);
+  });
+
+  it("finds all references for global variable", () => {
+    const source = `int x = 5; int y = x; int z = x;`;
+    const result = compile(source, "<test>", { noCheck: true });
+    const ast = result.ast!;
+    // Target 'x' in 'int y = x' — an Identifier expression
+    const xRef = source.indexOf("= x;") + 2; // offset of 'x' in first '= x;'
+    const refs = getReferences(ast, source, xRef, "file:///test.nk");
+    // x declaration + two references = 3
+    expect(refs.length).toBe(3);
+  });
+
+  it("function-scoped variable does not leak to outer scope", () => {
+    const source = `int x = 10;
+void foo() { int x = 20; print(x); }
+print(x);`;
+    const result = compile(source, "<test>", { noCheck: true });
+    const ast = result.ast!;
+    // Target 'x' in the outer print(x) at the end — an Identifier expression
+    const lastPrint = source.lastIndexOf("print(x)");
+    const outerX = lastPrint + 6; // offset of 'x' in last "print(x)"
+    const refs = getReferences(ast, source, outerX, "file:///test.nk");
+    // Should find: declaration "x = 10" + the outer "print(x)" = 2
+    // Should NOT include the inner "x = 20" or inner "print(x)"
+    expect(refs.length).toBe(2);
+  });
+});

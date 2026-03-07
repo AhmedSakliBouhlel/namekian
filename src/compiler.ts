@@ -77,7 +77,10 @@ export function compile(
     js = result.code;
     sourceMap = result.sourceMap;
   } else {
-    js = codegen.generate(ast, { projectMode: options.projectMode });
+    js = codegen.generate(ast, {
+      projectMode: options.projectMode,
+      typeMap: checker?.typeMap,
+    });
   }
 
   return {

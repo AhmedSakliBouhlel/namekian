@@ -65,11 +65,26 @@ export function getCodeActions(
 
     // Fix: non-exhaustive match — add wildcard arm
     if (diag.message.includes("Non-exhaustive match")) {
-      actions.push({
-        title: "Add wildcard arm '_ => { }'",
-        kind: "quickfix",
-        edits: [], // Would need AST info to insert at correct position
-      });
+      // Find the match block's closing brace from the diagnostic offset
+      let bracePos = -1;
+      let depth = 0;
+      for (let i = diagOffset; i < source.length; i++) {
+        if (source[i] === "{") depth++;
+        else if (source[i] === "}") {
+          depth--;
+          if (depth === 0) {
+            bracePos = i;
+            break;
+          }
+        }
+      }
+      if (bracePos >= 0) {
+        actions.push({
+          title: "Add wildcard arm '_ => { }'",
+          kind: "quickfix",
+          edits: [{ offset: bracePos, length: 0, newText: "  _ => { }\n" }],
+        });
+      }
     }
   }
 

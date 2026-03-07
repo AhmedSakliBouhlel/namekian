@@ -74,6 +74,7 @@ export class Formatter {
     return params
       .map((p) => {
         let s = "";
+        if (p.rest) s += "...";
         if (p.type) s += this.fmtType(p.type) + " ";
         s += p.name;
         if (p.defaultValue) s += " = " + this.fmtExpr(p.defaultValue);
@@ -287,7 +288,9 @@ export class Formatter {
         break;
 
       case "TakeStatement": {
-        const names = stmt.names.join(", ");
+        const names = stmt.names
+          .map((n) => (n.alias ? `${n.name} as ${n.alias}` : n.name))
+          .join(", ");
         this.emit(`take { ${names} } from "${stmt.path}"`);
         break;
       }
@@ -301,15 +304,31 @@ export class Formatter {
         this.indent++;
         this.formatBlock(stmt.tryBlock);
         this.indent--;
-        if (stmt.catchBinding) {
-          this.emit(`} catch (${stmt.catchBinding}) {`);
+        if (stmt.catchBlock) {
+          if (stmt.catchBinding) {
+            this.emit(`} catch (${stmt.catchBinding}) {`);
+          } else {
+            this.emit("} catch {");
+          }
+          this.indent++;
+          this.formatBlock(stmt.catchBlock);
+          this.indent--;
+          if (stmt.finallyBlock) {
+            this.emit("} finally {");
+            this.indent++;
+            this.formatBlock(stmt.finallyBlock);
+            this.indent--;
+          }
+          this.emit("}");
+        } else if (stmt.finallyBlock) {
+          this.emit("} finally {");
+          this.indent++;
+          this.formatBlock(stmt.finallyBlock);
+          this.indent--;
+          this.emit("}");
         } else {
-          this.emit("} catch {");
+          this.emit("}");
         }
-        this.indent++;
-        this.formatBlock(stmt.catchBlock);
-        this.indent--;
-        this.emit("}");
         break;
 
       case "MatchStatement":
@@ -361,6 +380,18 @@ export class Formatter {
         }
         this.indent--;
         this.emit("}");
+        break;
+
+      case "ThrowStatement":
+        this.emit(`throw ${this.fmtExpr(stmt.argument)};`);
+        break;
+
+      case "DoWhileStatement":
+        this.emit("do {");
+        this.indent++;
+        this.formatBlock(stmt.body);
+        this.indent--;
+        this.emit(`} while (${this.fmtExpr(stmt.condition)});`);
         break;
 
       case "DeferStatement":

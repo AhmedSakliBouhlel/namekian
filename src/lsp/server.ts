@@ -201,6 +201,7 @@ connection.onDefinition((params): Location | null => {
     cached.source,
     offset,
     params.textDocument.uri,
+    cached.checker?.typeMap,
   );
 });
 

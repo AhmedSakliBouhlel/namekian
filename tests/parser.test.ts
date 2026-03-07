@@ -201,7 +201,10 @@ describe("Parser", () => {
     const stmt = parseFirst('take { User, Post } from "./models";');
     expect(stmt.kind).toBe("TakeStatement");
     if (stmt.kind === "TakeStatement") {
-      expect(stmt.names).toEqual(["User", "Post"]);
+      expect(stmt.names).toEqual([
+        { name: "User", alias: undefined },
+        { name: "Post", alias: undefined },
+      ]);
       expect(stmt.path).toBe("./models");
     }
   });
@@ -1188,6 +1191,75 @@ describe("Parser", () => {
       expect(stmt.name).toBe("add");
       expect(stmt.returnType).toBeUndefined();
       expect(stmt.params.length).toBe(2);
+    }
+  });
+
+  // --- Feature 9: throw statement ---
+  it("parses throw statement", () => {
+    const stmt = parseFirst('throw "error";');
+    expect(stmt.kind).toBe("ThrowStatement");
+    if (stmt.kind === "ThrowStatement") {
+      expect(stmt.argument.kind).toBe("StringLiteral");
+    }
+  });
+
+  // --- Feature 10: import aliasing ---
+  it("parses take with aliasing", () => {
+    const stmt = parseFirst('take { User as U, Post } from "./models";');
+    expect(stmt.kind).toBe("TakeStatement");
+    if (stmt.kind === "TakeStatement") {
+      expect(stmt.names).toEqual([
+        { name: "User", alias: "U" },
+        { name: "Post", alias: undefined },
+      ]);
+    }
+  });
+
+  // --- Feature 11: try/catch/finally ---
+  it("parses try/catch/finally", () => {
+    const stmt = parseFirst(`
+      try { int x = 1; } catch (e) { print(e); } finally { print("done"); }
+    `);
+    expect(stmt.kind).toBe("TryCatchStatement");
+    if (stmt.kind === "TryCatchStatement") {
+      expect(stmt.tryBlock.kind).toBe("BlockStatement");
+      expect(stmt.catchBlock).toBeDefined();
+      expect(stmt.catchBinding).toBe("e");
+      expect(stmt.finallyBlock).toBeDefined();
+    }
+  });
+
+  it("parses try/finally without catch", () => {
+    const stmt = parseFirst(`
+      try { int x = 1; } finally { print("cleanup"); }
+    `);
+    expect(stmt.kind).toBe("TryCatchStatement");
+    if (stmt.kind === "TryCatchStatement") {
+      expect(stmt.catchBlock).toBeUndefined();
+      expect(stmt.finallyBlock).toBeDefined();
+    }
+  });
+
+  // --- Feature 12: do..while loop ---
+  it("parses do..while loop", () => {
+    const stmt = parseFirst(`
+      do { int x = 1; } while (x < 10);
+    `);
+    expect(stmt.kind).toBe("DoWhileStatement");
+    if (stmt.kind === "DoWhileStatement") {
+      expect(stmt.body.kind).toBe("BlockStatement");
+      expect(stmt.condition.kind).toBe("BinaryExpr");
+    }
+  });
+
+  // --- Feature 13: variadic parameters ---
+  it("parses rest parameter", () => {
+    const stmt = parseFirst("void log(...string items) { print(items); }");
+    expect(stmt.kind).toBe("FunctionDeclaration");
+    if (stmt.kind === "FunctionDeclaration") {
+      expect(stmt.params.length).toBe(1);
+      expect(stmt.params[0].name).toBe("items");
+      expect(stmt.params[0].rest).toBe(true);
     }
   });
 });

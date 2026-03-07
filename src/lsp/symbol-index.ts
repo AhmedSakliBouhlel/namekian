@@ -79,7 +79,13 @@ export function buildSymbolIndex(program: Program): Map<string, SymbolEntry> {
         break;
       case "TryCatchStatement":
         visitStmt(stmt.tryBlock);
-        visitStmt(stmt.catchBlock);
+        if (stmt.catchBlock) visitStmt(stmt.catchBlock);
+        if (stmt.finallyBlock) visitStmt(stmt.finallyBlock);
+        break;
+      case "ThrowStatement":
+        break;
+      case "DoWhileStatement":
+        visitStmt(stmt.body);
         break;
     }
   }

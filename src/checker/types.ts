@@ -71,6 +71,7 @@ export interface NkFunction {
   params: NkType[];
   returnType: NkType;
   isAsync?: boolean;
+  isVariadic?: boolean;
   typeParams?: string[];
   paramNames?: string[];
 }
@@ -123,6 +124,7 @@ export interface NkTuple {
 export interface NkTypeVar {
   tag: "typevar";
   name: string;
+  constraint?: NkType;
 }
 
 export interface NkModule {
